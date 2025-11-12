@@ -1,0 +1,95 @@
+name: Build HeightMapGenerator  
+  
+on:  
+  push:  
+    branches: [ main, master ]  
+    tags:  
+      - 'v*'  # Se ejecuta en tags como v1.0.0  
+  pull_request:  
+    branches: [ main, master ]  
+  
+jobs:  
+  build-linux:  
+    runs-on: ubuntu-latest  
+      
+    steps:  
+    - uses: actions/checkout@v3  
+      
+    - name: Install Qt  
+      uses: jurplel/install-qt-action@v3  
+      with:  
+        version: '6.4.2'  
+        modules: 'qtbase qttools'  
+      
+    - name: Configure CMake  
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release  
+      
+    - name: Build  
+      run: cmake --build build --config Release  
+      
+    - name: Package Linux binary  
+      run: |  
+        cd build  
+        tar -czf HeightMapGenerator-Linux-x64.tar.gz HeightMapGenerator  
+      
+    - name: Upload Linux artifact  
+      uses: actions/upload-artifact@v3  
+      with:  
+        name: HeightMapGenerator-Linux  
+        path: build/HeightMapGenerator-Linux-x64.tar.gz  
+  
+  build-windows:  
+    runs-on: windows-latest  
+      
+    steps:  
+    - uses: actions/checkout@v3  
+      
+    - name: Install Qt  
+      uses: jurplel/install-qt-action@v3  
+      with:  
+        version: '6.4.2'  
+        modules: 'qtbase qttools'  
+      
+    - name: Configure CMake  
+      run: cmake -B build -DCMAKE_BUILD_TYPE=Release  
+      
+    - name: Build  
+      run: cmake --build build --config Release  
+      
+    - name: Package Windows binary  
+      run: |  
+        cd build/Release  
+        Compress-Archive -Path HeightMapGenerator.exe -DestinationPath HeightMapGenerator-Windows-x64.zip  
+      
+    - name: Upload Windows artifact  
+      uses: actions/upload-artifact@v3  
+      with:  
+        name: HeightMapGenerator-Windows  
+        path: build/Release/HeightMapGenerator-Windows-x64.zip  
+  
+  create-release:  
+    needs: [build-linux, build-windows]  
+    runs-on: ubuntu-latest  
+    if: startsWith(github.ref, 'refs/tags/')  # Solo en tags  
+      
+    steps:  
+    - name: Download Linux artifact  
+      uses: actions/download-artifact@v3  
+      with:  
+        name: HeightMapGenerator-Linux  
+      
+    - name: Download Windows artifact  
+      uses: actions/download-artifact@v3  
+      with:  
+        name: HeightMapGenerator-Windows  
+      
+    - name: Create Release  
+      uses: softprops/action-gh-release@v1  
+      with:  
+        files: |  
+          HeightMapGenerator-Linux-x64.tar.gz  
+          HeightMapGenerator-Windows-x64.zip  
+        draft: false  
+        prerelease: false  
+      env:  
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
