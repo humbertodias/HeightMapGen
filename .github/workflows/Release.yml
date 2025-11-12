@@ -19,7 +19,7 @@ jobs:
       uses: jurplel/install-qt-action@v3  
       with:  
         version: '6.4.2'  
-        modules: 'qtbase qttools'  
+        # No especificar módulos - los básicos vienen por defecto  
       
     - name: Configure CMake  
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release  
@@ -48,7 +48,7 @@ jobs:
       uses: jurplel/install-qt-action@v3  
       with:  
         version: '6.4.2'  
-        modules: 'qtbase qttools'  
+        # No especificar módulos - los básicos vienen por defecto  
       
     - name: Configure CMake  
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release  
