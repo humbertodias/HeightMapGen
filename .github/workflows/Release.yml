@@ -64,7 +64,7 @@ jobs:
             mkdir deploy
             cp ${{ env.APP_NAME }}.exe deploy/
             windeployqt deploy/${{ env.APP_NAME }}.exe --release --no-translations
-            Compress-Archive -Path deploy/* -DestinationPath ../../${{ env.APP_NAME }}-${{ matrix.artifact }}-x64.${{ matrix.ext }}
+            zip -r ../../${{ env.APP_NAME }}-${{ matrix.artifact }}-x64.${{ matrix.ext }} .
             ;;
         esac
 
