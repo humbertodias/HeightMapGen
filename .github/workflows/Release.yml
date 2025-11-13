@@ -56,7 +56,7 @@ jobs:
             tar -czf ${{ env.APP_NAME }}-${{ matrix.artifact }}-x64.${{ matrix.ext }} -C build ${{ env.APP_NAME }}
             ;;
           macos-latest)
-            /Users/runner/work/Qt/${{ env.QT_VERSION }}/macos/bin/macdeployqt build/${{ env.APP_NAME }}.app -verbose=1
+            $QT_ROOT_DIR/bin/macdeployqt build/${{ env.APP_NAME }}.app -verbose=1
             tar -czf ${{ env.APP_NAME }}-${{ matrix.artifact }}-x64.${{ matrix.ext }} -C build ${{ env.APP_NAME }}.app
             ;;
           windows-latest)
