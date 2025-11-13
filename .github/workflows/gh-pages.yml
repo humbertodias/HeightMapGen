@@ -26,9 +26,10 @@ jobs:
       uses: jurplel/install-qt-action@v4
       with:
         version: ${{ env.QT_VERSION }}
-        modules: qtbase
         host: linux
         target: wasm
+        arch: wasm_32
+        modules: qtbase
 
     - name: Configure and Build (Emscripten)
       run: |
