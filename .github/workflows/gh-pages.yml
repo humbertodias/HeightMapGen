@@ -12,7 +12,7 @@ permissions:
 
 env:
   APP_NAME: "HeightMapGenerator"
-  QT_VERSION: "6.9.0"
+  QT_VERSION: "6.8.0"
   BUILD_DIR: "build-wasm"
 
 jobs:
