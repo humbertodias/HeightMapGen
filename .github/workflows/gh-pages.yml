@@ -29,9 +29,10 @@ jobs:
         ./emsdk install latest
         ./emsdk activate latest
 
-        echo "EMSDK=$PWD" >> $GITHUB_ENV
-        echo "EMSCRIPTEN=$PWD/upstream/emscripten" >> $GITHUB_ENV
-        echo "source $PWD/emsdk_env.sh" >> $GITHUB_ENV
+        # Export environment variables directly into GitHub Actions
+        ./emsdk_env.sh --build=release > emscripten_env.sh
+
+        grep "^export" emscripten_env.sh >> $GITHUB_ENV
 
     - name: Install Qt for WebAssembly
       uses: jurplel/install-qt-action@v4
@@ -49,7 +50,7 @@ jobs:
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_TOOLCHAIN_FILE=$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake \
         -DQT_CHAINLOAD_TOOLCHAIN_FILE=$EMSCRIPTEN/cmake/Modules/Platform/Emscripten.cmake
-        
+
         cmake --build ${{ env.BUILD_DIR }} --parallel
 
     - name: Prepare WebAssembly output
