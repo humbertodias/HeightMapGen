@@ -12,7 +12,7 @@ permissions:
 
 env:
   APP_NAME: "HeightMapGenerator"
-  QT_VERSION: "6.8.0"
+  QT_VERSION: "6.9.0"
   BUILD_DIR: "build-wasm"
 
 jobs:
@@ -29,7 +29,6 @@ jobs:
         host: all_os
         target: wasm
         arch: wasm_singlethread
-        modules: qtbase
 
     - name: Configure and Build (Emscripten)
       run: |
