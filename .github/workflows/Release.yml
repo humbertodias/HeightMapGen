@@ -1,4 +1,4 @@
-name: Build
+name: Build & Release
 
 on:
   push:
@@ -12,147 +12,103 @@ on:
 permissions:
   contents: write
 
+env:
+  APP_NAME: "HeightMapGenerator"
+  QT_VERSION: "6.9.0"
+  BUILD_TYPE: "Release"
+
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: Linux
+            qt_host: linux
+            qt_arch: gcc_64
+          - os: windows-latest
+            artifact: Windows
+            qt_host: windows
+            qt_arch: win64_msvc2022_64
+          - os: macos-latest
+            artifact: macOS
+            qt_host: mac
+            qt_arch: clang_64
 
     steps:
     - uses: actions/checkout@v5
 
-    - name: Install OpenGL dependencies
+    - name: Install dependencies (Linux only)
+      if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libgl1-mesa-dev libglu1-mesa-dev libxcb-cursor0
-
-    - name: Install Qt
-      uses: jurplel/install-qt-action@v3
-      with:
-        version: '6.9.0'
-
-    - name: Configure CMake
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build
-      run: cmake --build build --config Release
-
-    - name: Package Linux binary with dependencies
-      run: |
-        wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-        wget https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
-        chmod +x linuxdeploy*.AppImage
-
-        mkdir -p AppDir/usr/bin
-        cp build/HeightMapGenerator AppDir/usr/bin/
-
-        export QMAKE=$Qt6_DIR/bin/qmake
-        ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt
-
-        cd AppDir/usr
-        tar -czf ../../HeightMapGenerator-Linux-x64.tar.gz .
-
-    - name: Upload Linux artifact
-      uses: actions/upload-artifact@v5
-      with:
-        name: HeightMapGenerator-Linux
-        path: HeightMapGenerator-Linux-x64.tar.gz
-
-  build-windows:
-    runs-on: windows-latest
-
-    steps:
-    - uses: actions/checkout@v5
+        sudo apt-get install -y libgl1-mesa-dev libglu1-mesa-dev libxcb-cursor0 patchelf
 
     - name: Install Qt
       uses: jurplel/install-qt-action@v4
       with:
-        version: '6.9.0'
-        arch: 'win64_msvc2022_64'
+        version: ${{ env.QT_VERSION }}
+        host: ${{ matrix.qt_host }}
+        arch: ${{ matrix.qt_arch }}
 
     - name: Configure CMake
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      run: cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
 
     - name: Build
-      run: cmake --build build --config Release
+      run: cmake --build build --config ${{ env.BUILD_TYPE }}
 
-    - name: Package Windows binary with dependencies
+    - name: Package App
       run: |
-        cd build/Release
-        mkdir deploy
-        cp HeightMapGenerator.exe deploy/
+        if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+          mkdir -p AppDir/usr/bin
+          cp build/${{ env.APP_NAME }} AppDir/usr/bin/
+          ./linuxdeploy-x86_64.AppImage --appdir AppDir --plugin qt
+          (cd AppDir/usr && tar -czf ../../${{ env.APP_NAME }}-${{ matrix.artifact }}-x64.tar.gz .)
+        elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+          MACDEPLOYQT=$(find $Qt6_DIR -type f -name macdeployqt | head -n 1)
+          "$MACDEPLOYQT" build/${{ env.APP_NAME }}.app -verbose=1
+          tar -czf ${{ env.APP_NAME }}-${{ matrix.artifact }}-x64.tar.gz -C build ${{ env.APP_NAME }}.app
+        else
+          cd build/Release
+          mkdir deploy
+          cp ${{ env.APP_NAME }}.exe deploy/
+          windeployqt deploy/${{ env.APP_NAME }}.exe --release --no-translations
+          Compress-Archive -Path deploy/* -DestinationPath ../../${{ env.APP_NAME }}-${{ matrix.artifact }}-x64.zip
+        fi
+      shell: bash
 
-        # windeployqt is in PATH after installing Qt
-        windeployqt deploy/HeightMapGenerator.exe --release --no-translations
-
-        cd deploy
-        Compress-Archive -Path * -DestinationPath ../../HeightMapGenerator-Windows-x64.zip
-
-    - name: Upload Windows artifact
+    - name: Upload Artifact
       uses: actions/upload-artifact@v5
       with:
-        name: HeightMapGenerator-Windows
-        path: build/HeightMapGenerator-Windows-x64.zip
+        name: ${{ env.APP_NAME }}-${{ matrix.artifact }}
+        path: |
+          ${{ env.APP_NAME }}-${{ matrix.artifact }}-x64.tar.gz
+          ${{ env.APP_NAME }}-${{ matrix.artifact }}-x64.zip
 
-  build-macos:
-    runs-on: macos-latest
-
-    steps:
-    - uses: actions/checkout@v5
-
-    - name: Install Qt
-      uses: jurplel/install-qt-action@v4
-      with:
-        version: '6.9.0'
-        host: mac
-        arch: 'clang_64'
-
-    - name: Configure CMake
-      run: cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build
-      run: cmake --build build --config Release
-
-    - name: Bundle Qt with macdeployqt
-      run: |
-        $QT_ROOT_DIR/bin/macdeployqt build/HeightMapGenerator.app -verbose=2
-
-    - name: Package macOS binary
-      run: |
-        tar -czf HeightMapGenerator-macos-x64.tar.gz -C build HeightMapGenerator.app
-
-    - name: Upload macOS artifact
-      uses: actions/upload-artifact@v5
-      with:
-        name: HeightMapGenerator-macos
-        path: HeightMapGenerator-macos-x64.tar.gz
-
-  create-release:
-    needs: [build-linux, build-windows, build-macos]
+  release:
+    name: Create GitHub Release
+    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-    - name: Download Linux artifact
+    - name: Download all artifacts
       uses: actions/download-artifact@v6
-      with:
-        name: HeightMapGenerator-Linux
 
-    - name: Download Windows artifact
-      uses: actions/download-artifact@v6
-      with:
-        name: HeightMapGenerator-Windows
-
-    - name: Download macOS artifact
-      uses: actions/download-artifact@v6
-      with:
-        name: HeightMapGenerator-macos
-
-    - name: Create Release
+    - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
+        name: Release ${{ github.ref_name }}
+        tag_name: ${{ github.ref_name }}
         files: |
-          HeightMapGenerator-Linux-x64.tar.gz
-          HeightMapGenerator-Windows-x64.zip
-          HeightMapGenerator-macos-x64.tar.gz
+          */${{ env.APP_NAME }}-Linux-x64.tar.gz
+          */${{ env.APP_NAME }}-Windows-x64.zip
+          */${{ env.APP_NAME }}-macOS-x64.tar.gz
         draft: false
         prerelease: false
       env:
