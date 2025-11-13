@@ -113,7 +113,7 @@ jobs:
 
     - name: Bundle Qt with macdeployqt
       run: |
-        $Qt6_DIR/bin/macdeployqt build/HeightMapGenerator.app -verbose=2
+        $QT_ROOT_DIR/bin/macdeployqt build/HeightMapGenerator.app -verbose=2
 
     - name: Package macOS binary
       run: |
