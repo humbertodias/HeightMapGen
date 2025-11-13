@@ -27,7 +27,7 @@ jobs:
       with:
         version: ${{ env.QT_VERSION }}
         host: linux
-        target: wasm
+        target: all_os
         arch: wasm_singlethread
         modules: qtbase
 
