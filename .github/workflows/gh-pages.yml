@@ -26,8 +26,8 @@ jobs:
       uses: jurplel/install-qt-action@v4
       with:
         version: ${{ env.QT_VERSION }}
-        host: linux
-        target: all_os
+        host: all_os
+        target: wasm
         arch: wasm_singlethread
         modules: qtbase
 
