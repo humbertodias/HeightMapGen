@@ -14,7 +14,8 @@ env:
   APP_NAME: "HeightMapGenerator"
   QT_VERSION: "6.9.0"
   EMSCRIPTEN_VERSION: "3.1.70"
-  BUILD_DIR: "build-wasm"
+  BUILD_DIR: "build"
+  BUILD_TYPE: "Release"
 
 jobs:
   build:
@@ -42,7 +43,7 @@ jobs:
       run: |
 
         cmake -B${{ env.BUILD_DIR }} \
-        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
         -DCMAKE_TOOLCHAIN_FILE=$QT_ROOT_DIR/lib/cmake/Qt6/qt.toolchain.cmake \
         -DQT_CHAINLOAD_TOOLCHAIN_FILE=$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake
 
@@ -55,9 +56,9 @@ jobs:
         cp ${{ env.BUILD_DIR }}/${{ env.APP_NAME }}.html site/
         cp ${{ env.BUILD_DIR }}/${{ env.APP_NAME }}.js site/
         # Optional: add an index.html if Qt does not generate one
-        if [ ! -f site/index.html ]; then
-          echo "<meta http-equiv='refresh' content='0; URL=${{ env.APP_NAME }}.html'>" > site/index.html
-        fi
+        # if [ ! -f site/index.html ]; then
+        #   echo "<meta http-equiv='refresh' content='0; URL=${{ env.APP_NAME }}.html'>" > site/index.html
+        # fi
 
     - name: Upload site artifact
       uses: actions/upload-pages-artifact@v4
