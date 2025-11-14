@@ -33,7 +33,8 @@ MainWindow::MainWindow(QWidget *parent)
     , ui(new Ui::MainWindow)
 {  // <-- LLAVE DE APERTURA (debe estar aquí)
     ui->setupUi(this);
-
+    originalWindowWidth = this->width();
+    originalWindowHeight = this->height();
     if (ui->scrollAreaDisplay) {
         ui->scrollAreaDisplay->installEventFilter(this);
     }
@@ -103,6 +104,22 @@ MainWindow::~MainWindow()
         delete dynamicImageLabel;
     }
     delete ui;
+    // Ajustar tamaño inicial de la ventana
+    QScreen *screen = QGuiApplication::primaryScreen();
+    QRect screenGeometry = screen->availableGeometry();
+
+    const int CONTROL_PANEL_WIDTH = 173;
+    const int HORIZONTAL_FRAME_MARGIN = 50;
+    const int VERTICAL_FRAME_MARGIN = 150;
+
+    int maxScrollWidth = screenGeometry.width() - CONTROL_PANEL_WIDTH - HORIZONTAL_FRAME_MARGIN;
+    int maxScrollHeight = screenGeometry.height() - VERTICAL_FRAME_MARGIN;
+
+    // Usar un tamaño mínimo razonable para mostrar todos los botones
+    int initialWidth = std::max(670, 180 + 20 + 20); // 670 para mostrar botones hasta x=651
+    int initialHeight = std::max(300, 20 + 50);
+
+    this->setFixedSize(QSize(initialWidth, initialHeight));
 }
 
 
@@ -169,10 +186,13 @@ void MainWindow::on_pushButtonCreate_clicked()
 
     ui->scrollAreaDisplay->setGeometry(180, 20, scrollAreaWidth, scrollAreaHeight);
 
+    // CAMBIO: Usar las variables miembro en lugar de constantes hardcodeadas
     int requiredWidth = 180 + scrollAreaWidth + 20;
     int requiredHeight = 20 + scrollAreaHeight + 50;
 
-    if (requiredHeight < 300) requiredHeight = 300;
+    // Usar el máximo entre el tamaño calculado y el tamaño original
+    requiredWidth = std::max(requiredWidth, originalWindowWidth);
+    requiredHeight = std::max(requiredHeight, originalWindowHeight);
 
     QSize newSize(requiredWidth, requiredHeight);
     this->setFixedSize(newSize);
@@ -254,18 +274,7 @@ void MainWindow::on_pushButtonLoad_clicked()
 
     currentImage = loadedImage.convertToFormat(QImage::Format_RGB32);
 
-    // Actualizar UI (similar a on_pushButtonCreate_clicked)
-    if (dynamicImageLabel) {
-        delete dynamicImageLabel;
-    }
-    dynamicImageLabel = new QLabel(ui->scrollAreaDisplay);
-    dynamicImageLabel->setFixedSize(mapWidth, mapHeight);
-    ui->scrollAreaDisplay->setWidget(dynamicImageLabel);
-
-    // Limpiar historial
-    undoStack.clear();
-    redoStack.clear();
-    // Crear el label
+    // Actualizar UI
     if (dynamicImageLabel) {
         delete dynamicImageLabel;
         dynamicImageLabel = nullptr;
@@ -275,7 +284,7 @@ void MainWindow::on_pushButtonLoad_clicked()
     dynamicImageLabel->setFixedSize(mapWidth, mapHeight);
     ui->scrollAreaDisplay->setWidget(dynamicImageLabel);
 
-    // AÑADIR ESTE CÓDIGO PARA AJUSTAR LA VENTANA:
+    // Ajustar la ventana
     QScreen *screen = QGuiApplication::primaryScreen();
     QRect screenGeometry = screen->availableGeometry();
 
@@ -291,10 +300,13 @@ void MainWindow::on_pushButtonLoad_clicked()
 
     ui->scrollAreaDisplay->setGeometry(180, 20, scrollAreaWidth, scrollAreaHeight);
 
+    // CAMBIO: Usar las variables miembro en lugar de constantes hardcodeadas
     int requiredWidth = 180 + scrollAreaWidth + 20;
     int requiredHeight = 20 + scrollAreaHeight + 50;
 
-    if (requiredHeight < 300) requiredHeight = 300;
+    // Usar el máximo entre el tamaño calculado y el tamaño original
+    requiredWidth = std::max(requiredWidth, originalWindowWidth);
+    requiredHeight = std::max(requiredHeight, originalWindowHeight);
 
     QSize newSize(requiredWidth, requiredHeight);
     this->setFixedSize(newSize);
@@ -305,10 +317,7 @@ void MainWindow::on_pushButtonLoad_clicked()
 
     updateHeightmapDisplay();
     QMessageBox::information(this, "Éxito", "Heightmap cargado correctamente.");
-    updateHeightmapDisplay();
-    QMessageBox::information(this, "Éxito", "Heightmap cargado correctamente.");
 }
-
 void MainWindow::on_pushButtonExport3D_clicked()
 {
     if (mapWidth == 0 || mapHeight == 0) {
@@ -316,69 +325,107 @@ void MainWindow::on_pushButtonExport3D_clicked()
         return;
     }
 
-    // Diálogo con múltiples filtros
-    QString fileName = QFileDialog::getOpenFileName(this,
-                                                    "Importar Modelo 3D",
+    QString selectedFilter;
+    QString fileName = QFileDialog::getSaveFileName(this,
+                                                    "Exportar Modelo 3D",
                                                     "",
-                                                    "3D Files (*.obj *.OBJ *.stl *.STL);;OBJ Files (*.obj *.OBJ);;STL Files (*.stl *.STL);;All Files (*)");
+                                                    "OBJ Files (*.obj);;STL ASCII (*.stl);;STL Binary (*.stl)",
+                                                    &selectedFilter);
 
     if (fileName.isEmpty()) return;
 
-    // Determinar formato por extensión
     bool isOBJ = fileName.endsWith(".obj", Qt::CaseInsensitive);
     bool isSTL = fileName.endsWith(".stl", Qt::CaseInsensitive);
+    bool isSTLBinary = isSTL && selectedFilter.contains("Binary", Qt::CaseInsensitive);
+    bool isSTLASCII = isSTL && !isSTLBinary;
 
-    QFile file(fileName);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::critical(this, "Error", "No se pudo crear el archivo.");
-        return;
-    }
-
-    QTextStream out(&file);
+    // NUEVO: Umbral de altura mínima para exportar (ajustable)
+    const unsigned char HEIGHT_THRESHOLD = 5; // Píxeles con altura < 5 se ignoran
 
     if (isOBJ) {
-        // === EXPORTAR OBJ ===
+        // === EXPORTAR OBJ CON FILTRADO ===
+        QFile file(fileName);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QMessageBox::critical(this, "Error", "No se pudo crear el archivo.");
+            return;
+        }
 
-        // Escribir vértices
+        QTextStream out(&file);
+
+        // Crear mapeo de coordenadas a índices de vértices
+        std::vector<std::vector<int>> vertexIndexMap(mapHeight, std::vector<int>(mapWidth, -1));
+        int vertexIndex = 1; // OBJ usa índices 1-based
+
+        // Escribir solo vértices con altura > umbral
         for (int y = 0; y < mapHeight; ++y) {
             for (int x = 0; x < mapWidth; ++x) {
-                float height = heightMapData[y][x] / 255.0f * 100.0f;
-                out << "v " << x << " " << height << " " << y << "\n";
+                if (heightMapData[y][x] > HEIGHT_THRESHOLD) {
+                    float height = heightMapData[y][x] / 255.0f * 100.0f;
+                    out << "v " << x << " " << height << " " << y << "\n";
+                    vertexIndexMap[y][x] = vertexIndex++;
+                }
             }
         }
 
-        // Escribir coordenadas de textura
+        // Escribir coordenadas de textura solo para vértices exportados
         for (int y = 0; y < mapHeight; ++y) {
             for (int x = 0; x < mapWidth; ++x) {
-                out << "vt " << (float)x/mapWidth << " " << (float)y/mapHeight << "\n";
+                if (vertexIndexMap[y][x] != -1) {
+                    out << "vt " << (float)x/mapWidth << " " << (float)y/mapHeight << "\n";
+                }
             }
         }
 
-        // Escribir caras
+        // Escribir caras solo si todos los vértices existen
         for (int y = 0; y < mapHeight - 1; ++y) {
             for (int x = 0; x < mapWidth - 1; ++x) {
-                int topLeft = y * mapWidth + x + 1;
-                int topRight = topLeft + 1;
-                int bottomLeft = (y + 1) * mapWidth + x + 1;
-                int bottomRight = bottomLeft + 1;
+                int topLeft = vertexIndexMap[y][x];
+                int topRight = vertexIndexMap[y][x+1];
+                int bottomLeft = vertexIndexMap[y+1][x];
+                int bottomRight = vertexIndexMap[y+1][x+1];
 
-                out << "f " << topLeft << "/" << topLeft << " "
-                    << bottomLeft << "/" << bottomLeft << " "
-                    << topRight << "/" << topRight << "\n";
+                // Solo crear triángulos si todos los vértices existen
+                if (topLeft != -1 && topRight != -1 && bottomLeft != -1 && bottomRight != -1) {
+                    out << "f " << topLeft << "/" << topLeft << " "
+                        << bottomLeft << "/" << bottomLeft << " "
+                        << topRight << "/" << topRight << "\n";
 
-                out << "f " << topRight << "/" << topRight << " "
-                    << bottomLeft << "/" << bottomLeft << " "
-                    << bottomRight << "/" << bottomRight << "\n";
+                    out << "f " << topRight << "/" << topRight << " "
+                        << bottomLeft << "/" << bottomLeft << " "
+                        << bottomRight << "/" << bottomRight << "\n";
+                }
             }
         }
 
-    } else if (isSTL) {
-        // === EXPORTAR STL ===
+        file.close();
+        QMessageBox::information(this, "Éxito",
+                                 QString("Modelo OBJ exportado correctamente.\nVértices exportados: %1")
+                                     .arg(vertexIndex - 1));
 
+    } else if (isSTLASCII) {
+        // === EXPORTAR STL ASCII CON FILTRADO ===
+        QFile file(fileName);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QMessageBox::critical(this, "Error", "No se pudo crear el archivo.");
+            return;
+        }
+
+        QTextStream out(&file);
         out << "solid heightmap\n";
 
+        int triangleCount = 0;
+
         for (int y = 0; y < mapHeight - 1; ++y) {
             for (int x = 0; x < mapWidth - 1; ++x) {
+                // Solo exportar triángulos si al menos un vértice tiene altura > umbral
+                bool hasSignificantHeight =
+                    heightMapData[y][x] > HEIGHT_THRESHOLD ||
+                    heightMapData[y][x+1] > HEIGHT_THRESHOLD ||
+                    heightMapData[y+1][x] > HEIGHT_THRESHOLD ||
+                    heightMapData[y+1][x+1] > HEIGHT_THRESHOLD;
+
+                if (!hasSignificantHeight) continue;
+
                 float h1 = heightMapData[y][x] / 255.0f * 100.0f;
                 float h2 = heightMapData[y][x+1] / 255.0f * 100.0f;
                 float h3 = heightMapData[y+1][x] / 255.0f * 100.0f;
@@ -392,6 +439,7 @@ void MainWindow::on_pushButtonExport3D_clicked()
                 out << "      vertex " << (x+1) << " " << h2 << " " << y << "\n";
                 out << "    endloop\n";
                 out << "  endfacet\n";
+                triangleCount++;
 
                 // Segundo triángulo
                 out << "  facet normal 0 1 0\n";
@@ -401,17 +449,93 @@ void MainWindow::on_pushButtonExport3D_clicked()
                 out << "      vertex " << (x+1) << " " << h4 << " " << (y+1) << "\n";
                 out << "    endloop\n";
                 out << "  endfacet\n";
+                triangleCount++;
             }
         }
 
         out << "endsolid heightmap\n";
+        file.close();
+        QMessageBox::information(this, "Éxito",
+                                 QString("Modelo STL ASCII exportado correctamente.\nTriángulos: %1")
+                                     .arg(triangleCount));
+
+    } else if (isSTLBinary) {
+        // === EXPORTAR STL BINARIO CON FILTRADO ===
+        QFile file(fileName);
+        if (!file.open(QIODevice::WriteOnly)) {
+            QMessageBox::critical(this, "Error", "No se pudo crear el archivo.");
+            return;
+        }
+
+        // Primero contar triángulos válidos
+        uint32_t numTriangles = 0;
+        for (int y = 0; y < mapHeight - 1; ++y) {
+            for (int x = 0; x < mapWidth - 1; ++x) {
+                bool hasSignificantHeight =
+                    heightMapData[y][x] > HEIGHT_THRESHOLD ||
+                    heightMapData[y][x+1] > HEIGHT_THRESHOLD ||
+                    heightMapData[y+1][x] > HEIGHT_THRESHOLD ||
+                    heightMapData[y+1][x+1] > HEIGHT_THRESHOLD;
+
+                if (hasSignificantHeight) {
+                    numTriangles += 2;
+                }
+            }
+        }
+
+        QDataStream out(&file);
+        out.setByteOrder(QDataStream::LittleEndian);
+        out.setFloatingPointPrecision(QDataStream::SinglePrecision);
+
+        // Header (80 bytes)
+        QByteArray header(80, 0);
+        QString headerText = "HeightMapGen Binary STL Export (Filtered)";
+        header.replace(0, headerText.length(), headerText.toUtf8());
+        file.write(header);
+
+        // Número de triángulos
+        out << numTriangles;
+
+        // Escribir triángulos filtrados
+        for (int y = 0; y < mapHeight - 1; ++y) {
+            for (int x = 0; x < mapWidth - 1; ++x) {
+                bool hasSignificantHeight =
+                    heightMapData[y][x] > HEIGHT_THRESHOLD ||
+                    heightMapData[y][x+1] > HEIGHT_THRESHOLD ||
+                    heightMapData[y+1][x] > HEIGHT_THRESHOLD ||
+                    heightMapData[y+1][x+1] > HEIGHT_THRESHOLD;
+
+                if (!hasSignificantHeight) continue;
+
+                float h1 = heightMapData[y][x] / 255.0f * 100.0f;
+                float h2 = heightMapData[y][x+1] / 255.0f * 100.0f;
+                float h3 = heightMapData[y+1][x] / 255.0f * 100.0f;
+                float h4 = heightMapData[y+1][x+1] / 255.0f * 100.0f;
+
+                // Primer triángulo
+                out << 0.0f << 1.0f << 0.0f;
+                out << (float)x << h1 << (float)y;
+                out << (float)x << h3 << (float)(y+1);
+                out << (float)(x+1) << h2 << (float)y;
+                out << (uint16_t)0;
+
+                // Segundo triángulo
+                out << 0.0f << 1.0f << 0.0f;
+                out << (float)(x+1) << h2 << (float)y;
+                out << (float)x << h3 << (float)(y+1);
+                out << (float)(x+1) << h4 << (float)(y+1);
+                out << (uint16_t)0;
+            }
+        }
+
+        file.close();
+        QMessageBox::information(this, "Éxito",
+                                 QString("Modelo STL Binario exportado correctamente.\n"
+                                         "Triángulos: %1\n"
+                                         "Tamaño: %2 KB")
+                                     .arg(numTriangles)
+                                     .arg(file.size() / 1024));
     }
-
-    file.close();
-
-    QString format = isOBJ ? "OBJ" : "STL";
-    QMessageBox::information(this, "Éxito",
-                             QString("Modelo %1 exportado correctamente.").arg(format));
 }
 
 void MainWindow::on_pushButtonImport3D_clicked()
@@ -487,12 +611,10 @@ void MainWindow::on_pushButtonImport3D_clicked()
     float minY = *std::min_element(vertices_y.begin(), vertices_y.end());
     float maxY = *std::max_element(vertices_y.begin(), vertices_y.end());
 
-    // CAMBIO: Usar las dimensiones reales del modelo
     float rangeX = maxX - minX;
     float rangeZ = maxZ - minZ;
 
     // Calcular dimensiones basadas en el rango real
-    // Asumiendo que cada unidad del modelo = 1 píxel en el heightmap
     int targetWidth = static_cast<int>(std::ceil(rangeX));
     int targetHeight = static_cast<int>(std::ceil(rangeZ));
 
@@ -537,7 +659,7 @@ void MainWindow::on_pushButtonImport3D_clicked()
 
     currentImage = QImage(mapWidth, mapHeight, QImage::Format_RGB32);
 
-    // Ajustar ventana (igual que en la carga de PNG)
+    // Ajustar ventana
     QScreen *screen = QGuiApplication::primaryScreen();
     QRect screenGeometry = screen->availableGeometry();
 
@@ -553,10 +675,13 @@ void MainWindow::on_pushButtonImport3D_clicked()
 
     ui->scrollAreaDisplay->setGeometry(180, 20, scrollAreaWidth, scrollAreaHeight);
 
+    // CAMBIO: Usar las variables miembro en lugar de constantes hardcodeadas
     int requiredWidth = 180 + scrollAreaWidth + 20;
     int requiredHeight = 20 + scrollAreaHeight + 50;
 
-    if (requiredHeight < 300) requiredHeight = 300;
+    // Usar el máximo entre el tamaño calculado y el tamaño original
+    requiredWidth = std::max(requiredWidth, originalWindowWidth);
+    requiredHeight = std::max(requiredHeight, originalWindowHeight);
 
     this->setFixedSize(QSize(requiredWidth, requiredHeight));
 
@@ -571,7 +696,6 @@ void MainWindow::on_pushButtonImport3D_clicked()
                              QString("Modelo %1 importado correctamente como heightmap %2x%3.")
                                  .arg(format).arg(mapWidth).arg(mapHeight));
 }
-
 
 QPoint MainWindow::mapToDataCoordinates(int screenX, int screenY)
 {
@@ -764,6 +888,147 @@ double MainWindow::simplexNoise(double xin, double yin)
 
     return 70.0 * (n0 + n1 + n2);
 }
+
+// =================================================================
+// === VORONOI NOISE IMPLEMENTATION
+// =================================================================
+
+double MainWindow::voronoiNoise(double x, double y, int numPoints)
+{
+    // Determinar la celda actual en una cuadrícula
+    int cellX = static_cast<int>(std::floor(x));
+    int cellY = static_cast<int>(std::floor(y));
+
+    double minDist = std::numeric_limits<double>::max();
+
+    // Buscar en la celda actual y las 8 celdas vecinas
+    for (int offsetY = -1; offsetY <= 1; ++offsetY) {
+        for (int offsetX = -1; offsetX <= 1; ++offsetX) {
+            int neighborX = cellX + offsetX;
+            int neighborY = cellY + offsetY;
+
+            // Generar punto aleatorio para esta celda usando hash
+            unsigned int seed = static_cast<unsigned int>(neighborX * 374761393 + neighborY * 668265263);
+            seed = (seed ^ (seed >> 13)) * 1274126177;
+
+            double pointX = neighborX + (seed & 0xFFFF) / 65535.0;
+            seed = (seed ^ (seed >> 16)) * 85734257;
+            double pointY = neighborY + (seed & 0xFFFF) / 65535.0;
+
+            // Calcular distancia
+            double dx = x - pointX;
+            double dy = y - pointY;
+            double dist = std::sqrt(dx * dx + dy * dy);
+
+            if (dist < minDist) {
+                minDist = dist;
+            }
+        }
+    }
+
+    // Normalizar: la distancia máxima típica en una celda es ~1.414 (diagonal)
+    // Mapear [0, 1.5] a [-1, 1]
+    return (std::min(minDist / 1.5, 1.0) * 2.0) - 1.0;
+}
+
+double MainWindow::voronoiFbm(double x, double y)
+{
+    double total = 0.0;
+    double amplitude = 1.0;
+    double freq = 1.0;
+    double maxVal = 0.0;
+
+    for (int i = 0; i < octaves; ++i) {
+        total += voronoiNoise(x * freq, y * freq, voronoiNumPoints) * amplitude;
+        maxVal += amplitude;
+
+        amplitude *= persistence;
+        freq *= 2.0;
+    }
+
+    return total / maxVal;
+}
+
+// =================================================================
+// === RIDGED MULTIFRACTAL IMPLEMENTATION
+// =================================================================
+
+double MainWindow::ridgedMultifractal(double x, double y)
+{
+    double total = 0.0;
+    double amplitude = 1.0;
+    double freq = 1.0;
+    double maxVal = 0.0;
+
+    for (int i = 0; i < octaves; ++i) {
+        // Obtener ruido base (usando Perlin)
+        double noiseValue = perlin(x * freq, y * freq);
+
+        // Aplicar transformación ridged: invertir y tomar valor absoluto
+        noiseValue = 1.0 - std::abs(noiseValue);
+
+        // Elevar al cuadrado para acentuar las crestas
+        noiseValue = noiseValue * noiseValue;
+
+        total += noiseValue * amplitude;
+        maxVal += amplitude;
+
+        amplitude *= persistence;
+        freq *= 2.0;
+    }
+
+    return (total / maxVal) * 2.0 - 1.0;
+}
+
+// =================================================================
+// === BILLOWY NOISE IMPLEMENTATION
+// =================================================================
+
+double MainWindow::billowyNoise(double x, double y)
+{
+    // Billowy usa valor absoluto del ruido para crear formas redondeadas
+    double noiseValue = perlin(x, y);
+    return std::abs(noiseValue) * 2.0 - 1.0;
+}
+
+double MainWindow::billowyFbm(double x, double y)
+{
+    double total = 0.0;
+    double amplitude = 1.0;
+    double freq = 1.0;
+    double maxVal = 0.0;
+
+    for (int i = 0; i < octaves; ++i) {
+        double noiseValue = perlin(x * freq, y * freq);
+        noiseValue = std::abs(noiseValue);
+
+        total += noiseValue * amplitude;
+        maxVal += amplitude;
+
+        amplitude *= persistence;
+        freq *= 2.0;
+    }
+
+    return (total / maxVal) * 2.0 - 1.0;
+}
+
+// =================================================================
+// === DOMAIN WARPING IMPLEMENTATION
+// =================================================================
+
+double MainWindow::domainWarp(double x, double y, double warpStrength)
+{
+    // Usar dos capas de ruido para distorsionar las coordenadas
+    double warpX = perlin(x * 0.5, y * 0.5) * warpStrength;
+    double warpY = perlin(x * 0.5 + 100.0, y * 0.5 + 100.0) * warpStrength;
+
+    // Aplicar la distorsión y obtener el ruido final
+    double warpedX = x + warpX;
+    double warpedY = y + warpY;
+
+    return fbm(warpedX, warpedY);
+}
+
 
 double MainWindow::simplexFbm(double x, double y)
 {
@@ -995,7 +1260,6 @@ void MainWindow::on_pushButtonGenerate_clicked()
 
     // NUEVO: Determinar qué algoritmo usar
     QString noiseType = ui->comboBoxNoiseType->currentText();
-    bool useSimplex = (noiseType == "Simplex Noise");
 
     for (int y = 0; y < mapHeight; ++y) {
         for (int x = 0; x < mapWidth; ++x) {
@@ -1003,9 +1267,19 @@ void MainWindow::on_pushButtonGenerate_clicked()
             double sampleY = (double)y * baseFrequency + frequencyOffset;
 
             double noiseValue;
-            if (useSimplex) {
+
+            if (noiseType == "Simplex Noise") {
                 noiseValue = simplexFbm(sampleX, sampleY);
+            } else if (noiseType == "Voronoi Noise") {
+                noiseValue = voronoiFbm(sampleX, sampleY);
+            } else if (noiseType == "Ridged Multifractal") {
+                noiseValue = ridgedMultifractal(sampleX, sampleY);
+            } else if (noiseType == "Billowy Noise") {
+                noiseValue = billowyFbm(sampleX, sampleY);
+            } else if (noiseType == "Domain Warping") {
+                noiseValue = domainWarp(sampleX, sampleY, 50.0);
             } else {
+                // Por defecto: Perlin Noise
                 noiseValue = fbm(sampleX, sampleY);
             }
 

@@ -45,7 +45,9 @@ private slots:
 private:
     Ui::MainWindow *ui;
     QLabel *dynamicImageLabel;
-
+    // Agregar estas líneas:
+    int originalWindowWidth;
+    int originalWindowHeight;
     HeightMapData_t heightMapData;
     QImage currentImage;
     int mapWidth = 0;
@@ -107,6 +109,24 @@ private:
     // === SIMPLEX NOISE FUNCTIONS ===
     double simplexNoise(double x, double y);
     double simplexFbm(double x, double y);
+
+    // === VORONOI NOISE FUNCTIONS ===
+    double voronoiNoise(double x, double y, int numPoints = 20);
+    double voronoiFbm(double x, double y);
+
+    // === RIDGED MULTIFRACTAL ===
+    double ridgedMultifractal(double x, double y);
+
+    // === BILLOWY NOISE ===
+    double billowyNoise(double x, double y);
+    double billowyFbm(double x, double y);
+
+    // === DOMAIN WARPING ===
+    double domainWarp(double x, double y, double warpStrength = 0.5);
+
+    // === VORONOI VARIABLES ===
+    std::vector<std::pair<double, double>> voronoiPoints;
+    int voronoiNumPoints = 20;
 
     // === UNDO/REDO FUNCTIONS ===
     void saveStateToUndo();

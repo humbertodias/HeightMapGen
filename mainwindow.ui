@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>658</width>
+    <width>1039</width>
     <height>751</height>
    </rect>
   </property>
@@ -300,6 +300,26 @@
        <string>Simplex Noise</string>
       </property>
      </item>
+     <item>
+      <property name="text">
+       <string>Voronoi Noise</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Ridged Multifractal</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Billowy Noise</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Domain Warping</string>
+      </property>
+     </item>
     </widget>
    </widget>
    <widget class="QFrame" name="frame_2">
@@ -557,7 +577,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>658</width>
+     <width>1039</width>
      <height>20</height>
     </rect>
    </property>
