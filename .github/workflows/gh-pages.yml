@@ -52,13 +52,21 @@ jobs:
     - name: Prepare WebAssembly output
       run: |
         mkdir site
+
+        # Copy files from your app build
         cp ${{ env.BUILD_DIR }}/${{ env.APP_NAME }}.wasm site/
         cp ${{ env.BUILD_DIR }}/${{ env.APP_NAME }}.html site/
         cp ${{ env.BUILD_DIR }}/${{ env.APP_NAME }}.js site/
+
+        # Copy Qt WebAssembly runtime files
+        cp "${{ env.QT_ROOT_DIR }}/lib/Qt/lib/Qt6WebAssembly/qtloader.js" site/
+        cp "${{ env.QT_ROOT_DIR }}/lib/Qt/lib/Qt6WebAssembly/QtWebAssembly.js" site/
+        cp "${{ env.QT_ROOT_DIR }}/lib/Qt/lib/Qt6WebAssembly/QtWebAssembly.data" site/ || true
+
         # Optional: add an index.html if Qt does not generate one
-        # if [ ! -f site/index.html ]; then
-        #   echo "<meta http-equiv='refresh' content='0; URL=${{ env.APP_NAME }}.html'>" > site/index.html
-        # fi
+        if [ ! -f site/index.html ]; then
+          echo "<meta http-equiv='refresh' content='0; URL=${{ env.APP_NAME }}.html'>" > site/index.html
+        fi
 
     - name: Upload site artifact
       uses: actions/upload-pages-artifact@v4
