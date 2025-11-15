@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1039</width>
-    <height>751</height>
+    <width>750</width>
+    <height>572</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -17,8 +17,8 @@
    <widget class="QLabel" name="label">
     <property name="geometry">
      <rect>
-      <x>0</x>
-      <y>220</y>
+      <x>10</x>
+      <y>10</y>
       <width>121</width>
       <height>21</height>
      </rect>
@@ -27,50 +27,11 @@
      <string>Tamaño del Mapa</string>
     </property>
    </widget>
-   <widget class="QPushButton" name="pushButtonCreate">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>30</y>
-      <width>121</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Nuevo Heightmap</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButtonSave">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>60</y>
-      <width>121</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Guardar Heightmap</string>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_2">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>10</y>
-      <width>58</width>
-      <height>15</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Menu</string>
-    </property>
-   </widget>
    <widget class="QLineEdit" name="lineEditWidth">
     <property name="geometry">
      <rect>
-      <x>50</x>
-      <y>245</y>
+      <x>60</x>
+      <y>35</y>
       <width>113</width>
       <height>22</height>
      </rect>
@@ -79,8 +40,8 @@
    <widget class="QLineEdit" name="lineEditHeight">
     <property name="geometry">
      <rect>
-      <x>50</x>
-      <y>275</y>
+      <x>60</x>
+      <y>65</y>
       <width>113</width>
       <height>22</height>
      </rect>
@@ -89,8 +50,8 @@
    <widget class="QLabel" name="label_3">
     <property name="geometry">
      <rect>
-      <x>0</x>
-      <y>245</y>
+      <x>10</x>
+      <y>35</y>
       <width>58</width>
       <height>15</height>
      </rect>
@@ -102,8 +63,8 @@
    <widget class="QLabel" name="label_4">
     <property name="geometry">
      <rect>
-      <x>0</x>
-      <y>275</y>
+      <x>10</x>
+      <y>65</y>
       <width>58</width>
       <height>15</height>
      </rect>
@@ -135,24 +96,11 @@
      </property>
     </widget>
    </widget>
-   <widget class="QPushButton" name="pushButtonGenerate">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>120</y>
-      <width>121</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Generar aleatorio</string>
-    </property>
-   </widget>
    <widget class="QLabel" name="label_6">
     <property name="geometry">
      <rect>
-      <x>0</x>
-      <y>305</y>
+      <x>10</x>
+      <y>95</y>
       <width>201</width>
       <height>16</height>
      </rect>
@@ -164,8 +112,8 @@
    <widget class="QFrame" name="frame">
     <property name="geometry">
      <rect>
-      <x>0</x>
-      <y>325</y>
+      <x>10</x>
+      <y>115</y>
       <width>161</width>
       <height>151</height>
      </rect>
@@ -325,8 +273,8 @@
    <widget class="QFrame" name="frame_2">
     <property name="geometry">
      <rect>
-      <x>0</x>
-      <y>510</y>
+      <x>10</x>
+      <y>300</y>
       <width>161</width>
       <height>191</height>
      </rect>
@@ -483,8 +431,8 @@
    <widget class="QLabel" name="label_11">
     <property name="geometry">
      <rect>
-      <x>0</x>
-      <y>490</y>
+      <x>10</x>
+      <y>280</y>
       <width>101</width>
       <height>20</height>
      </rect>
@@ -493,96 +441,29 @@
      <string>Op de Pincel</string>
     </property>
    </widget>
-   <widget class="QPushButton" name="pushButtonUndo">
-    <property name="geometry">
-     <rect>
-      <x>500</x>
-      <y>0</y>
-      <width>71</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Deshacer</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButtonRedo">
-    <property name="geometry">
-     <rect>
-      <x>580</x>
-      <y>0</y>
-      <width>71</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Rehacer</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButtonView3D">
-    <property name="geometry">
-     <rect>
-      <x>400</x>
-      <y>0</y>
-      <width>84</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Preview 3D</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButtonLoad">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>90</y>
-      <width>121</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Cargar Heighmap</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButtonImport3D">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>150</y>
-      <width>121</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Importar</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="pushButtonExport3D">
-    <property name="geometry">
-     <rect>
-      <x>10</x>
-      <y>180</y>
-      <width>121</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Exportar</string>
-    </property>
-   </widget>
   </widget>
-  <widget class="QMenuBar" name="menubar">
+  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QMenuBar" name="menuBar">
    <property name="geometry">
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1039</width>
+     <width>750</width>
      <height>20</height>
     </rect>
    </property>
   </widget>
-  <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QToolBar" name="toolBar">
+   <property name="windowTitle">
+    <string>toolBar</string>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+  </widget>
  </widget>
  <resources/>
  <connections/>

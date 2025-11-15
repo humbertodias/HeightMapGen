@@ -35,6 +35,7 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     originalWindowWidth = this->width();
     originalWindowHeight = this->height();
+    this->setWindowTitle("HeightMapGen - Editor de Mapas de Altura");
     if (ui->scrollAreaDisplay) {
         ui->scrollAreaDisplay->installEventFilter(this);
     }
@@ -92,9 +93,133 @@ MainWindow::MainWindow(QWidget *parent)
         });
     }  // <-- ASEGÚRATE DE QUE ESTE IF CIERRA CORRECTAMENTE
 
-    // Conectar botones undo/redo - ESTAS LÍNEAS DEBEN ESTAR DENTRO DEL CONSTRUCTOR
-    connect(ui->pushButtonUndo, &QPushButton::clicked, this, &MainWindow::undo);
-    connect(ui->pushButtonRedo, &QPushButton::clicked, this, &MainWindow::redo);
+    // ============================================
+    // CREAR MENÚ PRINCIPAL (QMenuBar)
+    // ============================================
+
+    // Menú Archivo
+    QMenu *menuArchivo = menuBar()->addMenu("Archivo");
+
+    QAction *actionNuevo = menuArchivo->addAction("Nuevo Mapa");
+    actionNuevo->setShortcut(QKeySequence::New); // Ctrl+N
+    connect(actionNuevo, &QAction::triggered, this, &MainWindow::on_pushButtonCreate_clicked);
+
+    QAction *actionAbrir = menuArchivo->addAction("Cargar Mapa");
+    actionAbrir->setShortcut(QKeySequence::Open); // Ctrl+O
+    connect(actionAbrir, &QAction::triggered, this, &MainWindow::on_pushButtonLoad_clicked);
+
+    QAction *actionGuardar = menuArchivo->addAction("Guardar Mapa");
+    actionGuardar->setShortcut(QKeySequence::Save); // Ctrl+S
+    connect(actionGuardar, &QAction::triggered, this, &MainWindow::on_pushButtonSave_clicked);
+
+    menuArchivo->addSeparator();
+
+    QAction *actionImportar = menuArchivo->addAction("Importar 3D...");
+    connect(actionImportar, &QAction::triggered, this, &MainWindow::on_pushButtonImport3D_clicked);
+
+    QAction *actionExportar = menuArchivo->addAction("Exportar 3D...");
+    connect(actionExportar, &QAction::triggered, this, &MainWindow::on_pushButtonExport3D_clicked);
+
+    menuArchivo->addSeparator();
+
+    QAction *actionSalir = menuArchivo->addAction("Salir");
+    actionSalir->setShortcut(QKeySequence::Quit); // Ctrl+Q
+    connect(actionSalir, &QAction::triggered, this, &QMainWindow::close);
+
+    // Menú Edición
+    QMenu *menuEdicion = menuBar()->addMenu("Edición");
+
+    QAction *actionDeshacer = menuEdicion->addAction("Deshacer");
+    actionDeshacer->setShortcut(QKeySequence::Undo); // Ctrl+Z
+    connect(actionDeshacer, &QAction::triggered, this, &MainWindow::undo);
+
+    QAction *actionRehacer = menuEdicion->addAction("Rehacer");
+    actionRehacer->setShortcut(QKeySequence::Redo); // Ctrl+Y
+    connect(actionRehacer, &QAction::triggered, this, &MainWindow::redo);
+
+    // Menú Herramientas
+    QMenu *menuHerramientas = menuBar()->addMenu("Herramientas");
+
+    QAction *actionGenerar = menuHerramientas->addAction("Generar Terreno...");
+    connect(actionGenerar, &QAction::triggered, this, &MainWindow::on_pushButtonGenerate_clicked);
+
+    QAction *actionVista3D = menuHerramientas->addAction("Vista 3D");
+    connect(actionVista3D, &QAction::triggered, this, &MainWindow::on_pushButtonView3D_clicked);
+
+    // Menú Ayuda (opcional)
+    QMenu *menuAyuda = menuBar()->addMenu("Ayuda");
+
+    QAction *actionAcercaDe = menuAyuda->addAction("Acerca de...");
+    connect(actionAcercaDe, &QAction::triggered, this, [this]() {
+        QMessageBox::about(this, "Acerca de HeightMapGen",
+                           "HeightMapGen v1.0\n\nEditor de mapas de altura con generación procedural.");
+    });
+    // ============================================
+    // CREAR TOOLBAR CON ICONOS DEL TEMA
+    // ============================================
+    QToolBar *mainToolBar = new QToolBar("Herramientas", this);
+    mainToolBar->setIconSize(QSize(24, 24));
+    mainToolBar->setMovable(false);
+    addToolBar(Qt::TopToolBarArea, mainToolBar);
+
+    // ============================================
+    // SECCIÓN: ARCHIVO
+    // ============================================
+    QAction *toolActionNew = mainToolBar->addAction(QIcon::fromTheme("document-new"), "Nuevo");
+    toolActionNew->setShortcut(QKeySequence::New);
+    toolActionNew->setToolTip("Crear nuevo heightmap (Ctrl+N)");
+    connect(toolActionNew, &QAction::triggered, this, &MainWindow::on_pushButtonCreate_clicked);
+
+    QAction *toolActionOpen = mainToolBar->addAction(QIcon::fromTheme("document-open"), "Abrir");
+    toolActionOpen->setShortcut(QKeySequence::Open);
+    toolActionOpen->setToolTip("Cargar heightmap (Ctrl+O)");
+    connect(toolActionOpen, &QAction::triggered, this, &MainWindow::on_pushButtonLoad_clicked);
+
+    QAction *toolActionSave = mainToolBar->addAction(QIcon::fromTheme("document-save"), "Guardar");
+    toolActionSave->setShortcut(QKeySequence::Save);
+    toolActionSave->setToolTip("Guardar heightmap (Ctrl+S)");
+    connect(toolActionSave, &QAction::triggered, this, &MainWindow::on_pushButtonSave_clicked);
+
+    mainToolBar->addSeparator();
+
+    // ============================================
+    // SECCIÓN: EDICIÓN
+    // ============================================
+    QAction *toolActionUndo = mainToolBar->addAction(QIcon::fromTheme("edit-undo"), "Deshacer");
+    toolActionUndo->setShortcut(QKeySequence::Undo);
+    toolActionUndo->setToolTip("Deshacer (Ctrl+Z)");
+    connect(toolActionUndo, &QAction::triggered, this, &MainWindow::undo);
+
+    QAction *toolActionRedo = mainToolBar->addAction(QIcon::fromTheme("edit-redo"), "Rehacer");
+    toolActionRedo->setShortcut(QKeySequence::Redo);
+    toolActionRedo->setToolTip("Rehacer (Ctrl+Y)");
+    connect(toolActionRedo, &QAction::triggered, this, &MainWindow::redo);
+
+    mainToolBar->addSeparator();
+
+    // ============================================
+    // SECCIÓN: HERRAMIENTAS
+    // ============================================
+    QAction *toolActionGenerate = mainToolBar->addAction(QIcon::fromTheme("view-refresh"), "Generar");
+    toolActionGenerate->setToolTip("Generar terreno procedural");
+    connect(toolActionGenerate, &QAction::triggered, this, &MainWindow::on_pushButtonGenerate_clicked);
+
+    QAction *toolActionView3D = mainToolBar->addAction(QIcon::fromTheme("visibility"), "Vista 3D");
+    toolActionView3D->setToolTip("Abrir visualización 3D");
+    connect(toolActionView3D, &QAction::triggered, this, &MainWindow::on_pushButtonView3D_clicked);
+
+    mainToolBar->addSeparator();
+
+    // ============================================
+    // SECCIÓN: IMPORTAR/EXPORTAR
+    // ============================================
+    QAction *toolActionImport = mainToolBar->addAction(QIcon::fromTheme("document-import"), "Importar");
+    toolActionImport->setToolTip("Importar modelo 3D (OBJ/STL)");
+    connect(toolActionImport, &QAction::triggered, this, &MainWindow::on_pushButtonImport3D_clicked);
+
+    QAction *toolActionExport = mainToolBar->addAction(QIcon::fromTheme("document-export"), "Exportar");
+    toolActionExport->setToolTip("Exportar modelo 3D (OBJ/STL)");
+    connect(toolActionExport, &QAction::triggered, this, &MainWindow::on_pushButtonExport3D_clicked);
 
 }  // <-- LLAVE DE CIERRE DEL CONSTRUCTOR (debe estar aquí)
 
@@ -120,6 +245,7 @@ MainWindow::~MainWindow()
     int initialHeight = std::max(300, 20 + 50);
 
     this->setFixedSize(QSize(initialWidth, initialHeight));
+
 }
 
 
