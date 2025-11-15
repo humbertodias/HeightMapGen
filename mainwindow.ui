@@ -358,6 +358,21 @@
        <string>Rellenar</string>
       </property>
      </item>
+     <item>
+      <property name="text">
+       <string>Línea</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Rectángulo</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Círculo</string>
+      </property>
+     </item>
     </widget>
     <widget class="QLabel" name="label_14">
      <property name="geometry">

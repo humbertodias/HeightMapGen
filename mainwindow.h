@@ -53,7 +53,7 @@ private:
     int mapWidth = 0;
     int mapHeight = 0;
     bool isPainting = false;
-    int fillColor = 128;  // Color de relleno (0-255
+    int brushColor = 128;  // Color de relleno (0-255
     int brushHeight = 128;
     double brushIntensity = 0.3;
 
@@ -63,8 +63,16 @@ private:
         SMOOTH,
         FLATTEN,
         NOISE,
-        FILL
+        FILL,
+        LINE,
+        RECTANGLE,
+        CIRCLE
     };
+
+    // Añadir variables para formas de dos puntos
+    QPoint shapeStartPoint;
+    bool isDrawingShape = false;
+    QImage previewImage;  // Para mostrar preview durante el dibujo
     BrushMode currentBrushMode = RAISE_LOWER;
     int flattenHeight = 128;
 
@@ -133,6 +141,11 @@ private:
     void undo();
     void redo();
     void clearRedoStack();
+
+    // DIBUJO DE FORMAS
+    void drawLine(int x1, int y1, int x2, int y2);
+    void drawRectangle(int x1, int y1, int x2, int y2);
+    void drawCircle(int centerX, int centerY, int radius);
 };
 
 #endif // MAINWINDOW_H

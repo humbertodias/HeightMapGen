@@ -82,10 +82,10 @@ MainWindow::MainWindow(QWidget *parent)
     if (ui->sliderFillColor) {
         ui->sliderFillColor->setRange(0, 255);
         ui->sliderFillColor->setValue(128);
-        fillColor = 128;
+        brushColor = 128;
 
         connect(ui->sliderFillColor, &QSlider::valueChanged, this, [this](int value) {
-            fillColor = value;
+            brushColor = value;
             if (ui->labelFillColorPreview) {
                 QString styleSheet = QString("background-color: rgb(%1, %1, %1); border: 1px solid black;").arg(value);
                 ui->labelFillColorPreview->setStyleSheet(styleSheet);
@@ -1425,67 +1425,56 @@ void MainWindow::on_pushButtonGenerate_clicked()
 // =================================================================
 // === MOUSE EVENTS
 // =================================================================
-void MainWindow::mousePressEvent(QMouseEvent *event)
-{
-    if (mapWidth == 0 || mapHeight == 0 || !dynamicImageLabel) return;
+    void MainWindow::mousePressEvent(QMouseEvent *event)
+    {
+        if (mapWidth == 0 || mapHeight == 0 || !dynamicImageLabel) return;
 
-    QPoint globalPos = event->globalPosition().toPoint();
-    QPoint localPos = dynamicImageLabel->mapFromGlobal(globalPos);
-
-    if (!dynamicImageLabel->rect().contains(localPos)) return;
-
-    saveStateToUndo();
-    isPainting = true;
-
-    QString brushModeText = ui->comboBoxBrushMode->currentText();
-
-    if (brushModeText == "Suavizar") {
-        currentBrushMode = SMOOTH;
-    } else if (brushModeText == "Aplanar") {
-        currentBrushMode = FLATTEN;
-        QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
-        flattenHeight = heightMapData[dataPos.y()][dataPos.x()];
-    } else if (brushModeText == "Ruido") {
-        currentBrushMode = NOISE;
-    } else if (brushModeText == "Rellenar") {  // NUEVO - Añadir este caso
-        currentBrushMode = FILL;
-    } else {
-        currentBrushMode = RAISE_LOWER;
-        if (event->button() == Qt::LeftButton) {
-            brushHeight = 240;
-        } else if (event->button() == Qt::RightButton) {
-            brushHeight = 20;
-        }
-    }
-
-    QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
-
-    switch (currentBrushMode) {
-    case RAISE_LOWER:
-        applyBrush(dataPos.x(), dataPos.y());
-        break;
-    case SMOOTH:
-        applySmoothBrush(dataPos.x(), dataPos.y());
-        break;
-    case FLATTEN:
-        applyFlattenBrush(dataPos.x(), dataPos.y());
-        break;
-    case NOISE:
-        applyNoiseBrush(dataPos.x(), dataPos.y());
-        break;
-    case FILL:  // NUEVO - Añadir este caso
-        applyFillBrush(dataPos.x(), dataPos.y());
-        break;
-    }
-}
-
-void MainWindow::mouseMoveEvent(QMouseEvent *event)
-{
-    if (isPainting && dynamicImageLabel) {
         QPoint globalPos = event->globalPosition().toPoint();
         QPoint localPos = dynamicImageLabel->mapFromGlobal(globalPos);
 
         if (!dynamicImageLabel->rect().contains(localPos)) return;
+
+        saveStateToUndo();
+        isPainting = true;
+
+        QString brushModeText = ui->comboBoxBrushMode->currentText();
+        qDebug() << "Modo seleccionado:" << brushModeText;  // DEBUG
+        // IMPORTANTE: Los casos de geometría deben ir ANTES del else
+        if (brushModeText == "Línea") {
+            currentBrushMode = LINE;
+            QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
+            shapeStartPoint = dataPos;
+            isDrawingShape = true;
+            previewImage = currentImage.copy();
+            return;  // CRÍTICO: salir aquí
+        } else if (brushModeText == "Rectángulo") {
+            currentBrushMode = RECTANGLE;
+            QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
+            shapeStartPoint = dataPos;
+            isDrawingShape = true;
+            previewImage = currentImage.copy();
+            return;  // CRÍTICO: salir aquí
+        } else if (brushModeText == "Círculo") {
+            currentBrushMode = CIRCLE;
+            QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
+            shapeStartPoint = dataPos;
+            isDrawingShape = true;
+            previewImage = currentImage.copy();
+            return;  // CRÍTICO: salir aquí
+        } else if (brushModeText == "Suavizar") {
+            currentBrushMode = SMOOTH;
+        } else if (brushModeText == "Aplanar") {
+            currentBrushMode = FLATTEN;
+            QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
+            flattenHeight = heightMapData[dataPos.y()][dataPos.x()];
+        } else if (brushModeText == "Ruido") {
+            currentBrushMode = NOISE;
+        } else if (brushModeText == "Rellenar") {
+            currentBrushMode = FILL;
+        } else {
+            currentBrushMode = RAISE_LOWER;
+            brushHeight = brushColor;
+        }
 
         QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
 
@@ -1503,16 +1492,115 @@ void MainWindow::mouseMoveEvent(QMouseEvent *event)
             applyNoiseBrush(dataPos.x(), dataPos.y());
             break;
         case FILL:
-            // No hacer nada - el relleno solo se ejecuta en mousePressEvent
+            applyFillBrush(dataPos.x(), dataPos.y());
+            break;
+        default:
             break;
         }
     }
-}
 
-void MainWindow::mouseReleaseEvent(QMouseEvent *event)
-{
-    isPainting = false;
-}
+    void MainWindow::mouseMoveEvent(QMouseEvent *event)
+    {
+        if (!dynamicImageLabel) return;
+
+        QPoint globalPos = event->globalPosition().toPoint();
+        QPoint localPos = dynamicImageLabel->mapFromGlobal(globalPos);
+
+        if (!dynamicImageLabel->rect().contains(localPos)) return;
+
+        // Manejo especial para formas con preview
+        if (isDrawingShape && (currentBrushMode == LINE || currentBrushMode == RECTANGLE || currentBrushMode == CIRCLE)) {
+            QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
+
+            // Restaurar imagen original
+            currentImage = previewImage.copy();
+
+            // Dibujar preview de la forma
+            QPainter painter(&currentImage);
+            QPen pen(QColor(brushColor, brushColor, brushColor));
+            pen.setWidth(2);
+            painter.setPen(pen);
+
+            if (currentBrushMode == LINE) {
+                painter.drawLine(shapeStartPoint.x(), shapeStartPoint.y(),
+                                 dataPos.x(), dataPos.y());
+            } else if (currentBrushMode == RECTANGLE) {
+                int x = std::min(shapeStartPoint.x(), dataPos.x());
+                int y = std::min(shapeStartPoint.y(), dataPos.y());
+                int w = std::abs(dataPos.x() - shapeStartPoint.x());
+                int h = std::abs(dataPos.y() - shapeStartPoint.y());
+                painter.drawRect(x, y, w, h);
+            } else if (currentBrushMode == CIRCLE) {
+                int dx = dataPos.x() - shapeStartPoint.x();
+                int dy = dataPos.y() - shapeStartPoint.y();
+                int radius = static_cast<int>(std::sqrt(dx * dx + dy * dy));
+                painter.drawEllipse(shapeStartPoint, radius, radius);
+            }
+
+            // Actualizar display
+            if (dynamicImageLabel) {
+                dynamicImageLabel->setPixmap(QPixmap::fromImage(currentImage));
+            }
+            return;
+        }
+
+        // Comportamiento normal para otros pinceles
+        if (isPainting) {
+            QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
+
+            switch (currentBrushMode) {
+            case RAISE_LOWER:
+                applyBrush(dataPos.x(), dataPos.y());
+                break;
+            case SMOOTH:
+                applySmoothBrush(dataPos.x(), dataPos.y());
+                break;
+            case FLATTEN:
+                applyFlattenBrush(dataPos.x(), dataPos.y());
+                break;
+            case NOISE:
+                applyNoiseBrush(dataPos.x(), dataPos.y());
+                break;
+            case FILL:
+                // No hacer nada - el relleno solo se ejecuta en mousePressEvent
+                break;
+            case LINE:
+                break;
+            case RECTANGLE:
+                break;
+            case CIRCLE:
+                break;
+            default:
+                break;
+            }
+        }
+    }
+
+    void MainWindow::mouseReleaseEvent(QMouseEvent *event)
+    {
+        if (isDrawingShape && (currentBrushMode == LINE || currentBrushMode == RECTANGLE || currentBrushMode == CIRCLE)) {
+            QPoint globalPos = event->globalPosition().toPoint();
+            QPoint localPos = dynamicImageLabel->mapFromGlobal(globalPos);
+            QPoint dataPos = mapToDataCoordinates(localPos.x(), localPos.y());
+
+            // Aplicar la forma final al heightMapData
+            if (currentBrushMode == LINE) {
+                drawLine(shapeStartPoint.x(), shapeStartPoint.y(), dataPos.x(), dataPos.y());
+            } else if (currentBrushMode == RECTANGLE) {
+                drawRectangle(shapeStartPoint.x(), shapeStartPoint.y(), dataPos.x(), dataPos.y());
+            } else if (currentBrushMode == CIRCLE) {
+                int dx = dataPos.x() - shapeStartPoint.x();
+                int dy = dataPos.y() - shapeStartPoint.y();
+                int radius = static_cast<int>(std::sqrt(dx * dx + dy * dy));
+                drawCircle(shapeStartPoint.x(), shapeStartPoint.y(), radius);
+            }
+
+            isDrawingShape = false;
+            updateHeightmapDisplay();
+        }
+
+        isPainting = false;
+    }
 
 // =================================================================
 // === 3D VIEW WINDOW
@@ -1598,6 +1686,145 @@ void MainWindow::on_pushButtonView3D_clicked()
     dialog->show();
 }
 
+// =================================================================
+// === SHAPE DRAWING FUNCTIONS
+// =================================================================
+
+void MainWindow::drawLine(int x1, int y1, int x2, int y2)
+{
+    if (!ui->sliderBrushSize || !ui->sliderBrushIntensity) return;
+
+    int brushRadius = ui->sliderBrushSize->value();
+    if (brushRadius < 1) brushRadius = 1;
+
+    double intensityFactor = ui->sliderBrushIntensity->value() / 100.0;
+
+    // Algoritmo de Bresenham para la línea central
+    int dx = std::abs(x2 - x1);
+    int dy = std::abs(y2 - y1);
+    int sx = (x1 < x2) ? 1 : -1;
+    int sy = (y1 < y2) ? 1 : -1;
+    int err = dx - dy;
+
+    int lineX = x1;
+    int lineY = y1;
+
+    while (true) {
+        // Para cada punto de la línea, dibujar un círculo con el radio del pincel
+        for (int dy = -brushRadius; dy <= brushRadius; ++dy) {
+            for (int dx = -brushRadius; dx <= brushRadius; ++dx) {
+                int px = lineX + dx;
+                int py = lineY + dy;
+
+                // Verificar que está dentro del radio circular
+                double distSq = dx * dx + dy * dy;
+                double brushRadiusSq = brushRadius * brushRadius;
+
+                if (distSq <= brushRadiusSq && px >= 0 && px < mapWidth && py >= 0 && py < mapHeight) {
+                    // Calcular intensidad con falloff radial
+                    double intensity = 1.0 - (distSq / brushRadiusSq);
+                    intensity *= intensityFactor;
+
+                    // Mezclar con el valor existente
+                    int currentValue = heightMapData[py][px];
+                    int targetValue = static_cast<int>(currentValue + (brushColor - currentValue) * intensity);
+                    heightMapData[py][px] = static_cast<unsigned char>(std::min(std::max(targetValue, 0), 255));
+                }
+            }
+        }
+
+        if (lineX == x2 && lineY == y2) break;
+
+        int e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            lineX += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            lineY += sy;
+        }
+    }
+}
+
+void MainWindow::drawRectangle(int x1, int y1, int x2, int y2)
+{
+    // Asegurar que x1,y1 sea la esquina superior izquierda
+    int minX = std::min(x1, x2);
+    int maxX = std::max(x1, x2);
+    int minY = std::min(y1, y2);
+    int maxY = std::max(y1, y2);
+
+    // Dibujar los cuatro lados del rectángulo
+    drawLine(minX, minY, maxX, minY);  // Lado superior
+    drawLine(maxX, minY, maxX, maxY);  // Lado derecho
+    drawLine(maxX, maxY, minX, maxY);  // Lado inferior
+    drawLine(minX, maxY, minX, minY);  // Lado izquierdo
+}
+
+void MainWindow::drawCircle(int centerX, int centerY, int radius)
+{
+    if (!ui->sliderBrushSize || !ui->sliderBrushIntensity) return;
+
+    int brushRadius = ui->sliderBrushSize->value();
+    if (brushRadius < 1) brushRadius = 1;
+
+    double intensityFactor = ui->sliderBrushIntensity->value() / 100.0;
+
+    // Algoritmo del punto medio para el círculo
+    int x = 0;
+    int y = radius;
+    int d = 1 - radius;
+
+    auto drawCirclePointsWithBrush = [&](int cx, int cy, int x, int y) {
+        // Para cada punto del círculo, dibujar con el tamaño del pincel
+        auto drawPointWithBrush = [&](int px, int py) {
+            // Dibujar un círculo pequeño alrededor de este punto
+            for (int dy = -brushRadius; dy <= brushRadius; ++dy) {
+                for (int dx = -brushRadius; dx <= brushRadius; ++dx) {
+                    int finalX = px + dx;
+                    int finalY = py + dy;
+
+                    double distSq = dx * dx + dy * dy;
+                    double brushRadiusSq = brushRadius * brushRadius;
+
+                    if (distSq <= brushRadiusSq && finalX >= 0 && finalX < mapWidth && finalY >= 0 && finalY < mapHeight) {
+                        double intensity = 1.0 - (distSq / brushRadiusSq);
+                        intensity *= intensityFactor;
+
+                        int currentValue = heightMapData[finalY][finalX];
+                        int targetValue = static_cast<int>(currentValue + (brushColor - currentValue) * intensity);
+                        heightMapData[finalY][finalX] = static_cast<unsigned char>(std::min(std::max(targetValue, 0), 255));
+                    }
+                }
+            }
+        };
+
+        // Dibujar los 8 puntos simétricos
+        drawPointWithBrush(cx + x, cy + y);
+        drawPointWithBrush(cx - x, cy + y);
+        drawPointWithBrush(cx + x, cy - y);
+        drawPointWithBrush(cx - x, cy - y);
+        drawPointWithBrush(cx + y, cy + x);
+        drawPointWithBrush(cx - y, cy + x);
+        drawPointWithBrush(cx + y, cy - x);
+        drawPointWithBrush(cx - y, cy - x);
+    };
+
+    drawCirclePointsWithBrush(centerX, centerY, x, y);
+
+    while (x < y) {
+        if (d < 0) {
+            d += 2 * x + 3;
+        } else {
+            d += 2 * (x - y) + 5;
+            y--;
+        }
+        x++;
+        drawCirclePointsWithBrush(centerX, centerY, x, y);
+    }
+}
+
 void MainWindow::applyFillBrush(int mapX, int mapY)
 {
     if (mapX < 0 || mapX >= mapWidth || mapY < 0 || mapY >= mapHeight) return;
@@ -1606,7 +1833,7 @@ void MainWindow::applyFillBrush(int mapX, int mapY)
     unsigned char targetColor = heightMapData[mapY][mapX];
 
     // Si el color de relleno es igual al color objetivo, no hacer nada
-    if (targetColor == fillColor) return;
+    if (targetColor == brushColor) return;
 
     // Usar una cola para flood fill iterativo (evita stack overflow)
     std::queue<QPoint> queue;
@@ -1633,7 +1860,7 @@ void MainWindow::applyFillBrush(int mapX, int mapY)
 
         // Marcar como visitado y rellenar
         visited[y][x] = true;
-        heightMapData[y][x] = static_cast<unsigned char>(fillColor);
+        heightMapData[y][x] = static_cast<unsigned char>(brushColor);
 
         // Añadir píxeles vecinos a la cola (4-conectividad: arriba, abajo, izquierda, derecha)
         queue.push(QPoint(x, y - 1)); // Arriba
@@ -1643,4 +1870,6 @@ void MainWindow::applyFillBrush(int mapX, int mapY)
     }
 
     updateHeightmapDisplay();
+
+
 }
