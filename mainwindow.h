@@ -58,6 +58,7 @@ private:
     int brushColor = 128;  // Color de relleno (0-255
     int brushHeight = 128;
     double brushIntensity = 0.3;
+    bool *isFirstClick = new bool(true);
 
     // En la sección private de mainwindow.h:
     std::vector<std::vector<int>> textureMap; // Mapa de índices de textura por píxel

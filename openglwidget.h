@@ -36,6 +36,8 @@ public:
     QImage generateColorMapImage() const;
     bool showWater = true;
     float waterLevel = 50.0f;
+    bool colorMapValid = !colorMap.empty() &&
+                         colorMap.size() == static_cast<size_t>(mapHeight);
 
 protected:
     void initializeGL() override;

@@ -29,6 +29,7 @@
 #include <queue>
 #include <QListWidget>
 #include <QColorDialog>
+#include <QColorSpace>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -1886,20 +1887,22 @@ void MainWindow::applyFillBrush(int mapX, int mapY)
 // ===========================================
 
 class PaintableLabel : public QLabel {
-
 public:
     PaintableLabel(QWidget *parent = nullptr) : QLabel(parent) {
         setMouseTracking(true);
     }
 
     std::function<void(QMouseEvent*)> paintCallback;
+    std::function<void()> releaseCallback;  // NUEVO: Callback para cuando se suelta el mouse
     bool isPainting = false;
 
 protected:
     void mousePressEvent(QMouseEvent *event) override {
         if (event->button() == Qt::LeftButton) {
             isPainting = true;
-            if (paintCallback) paintCallback(event);
+            if (paintCallback) {
+                paintCallback(event);
+            }
         }
     }
 
@@ -1912,10 +1915,12 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override {
         if (event->button() == Qt::LeftButton) {
             isPainting = false;
+            if (releaseCallback) {  // NUEVO: Llamar al callback de release
+                releaseCallback();
+            }
         }
     }
 };
-
 void MainWindow::on_pushButtonTexturize_clicked()
 {
     if (mapWidth == 0 || mapHeight == 0) {
@@ -1959,7 +1964,6 @@ void MainWindow::on_pushButtonTexturize_clicked()
     QPushButton *btnCustomColor = new QPushButton("Color Personalizado", dialog);
     leftPanel->addWidget(btnCustomColor);
 
-    // Cargar directorio de texturas
     QPushButton *btnLoadTexture = new QPushButton("Cargar Textura", dialog);
     leftPanel->addWidget(btnLoadTexture);
 
@@ -1974,15 +1978,62 @@ void MainWindow::on_pushButtonTexturize_clicked()
     sliderTextureBrushSize->setValue(20);
     leftPanel->addWidget(sliderTextureBrushSize);
 
+
     QLabel *labelBrushSizeValue = new QLabel("20", dialog);
     leftPanel->addWidget(labelBrushSizeValue);
+
+    QLabel *labelOpacity = new QLabel("Opacidad del Pincel:", dialog);
+    leftPanel->addWidget(labelOpacity);
+
+    QSlider *sliderBrushOpacity = new QSlider(Qt::Horizontal, dialog);  // ← SOLO AQUÍ
+    sliderBrushOpacity->setRange(0, 100);
+    sliderBrushOpacity->setValue(100);
+    leftPanel->addWidget(sliderBrushOpacity);
+
+    QLabel *labelOpacityValue = new QLabel("100%", dialog);
+    leftPanel->addWidget(labelOpacityValue);
+
+    // Modo de pintado
+    QLabel *labelPaintMode = new QLabel("Modo de Pintado:", dialog);
+    leftPanel->addWidget(labelPaintMode);
+
+    QComboBox *comboPaintMode = new QComboBox(dialog);
+    comboPaintMode->addItem("Pincel");
+    comboPaintMode->addItem("Relleno");
+    comboPaintMode->addItem("Difuminar");
+    comboPaintMode->addItem("Clonar");
+    comboPaintMode->addItem("Borrador");
+    leftPanel->addWidget(comboPaintMode);
+
+    // Opacidad del pincel
+
+    QSlider *sliderOpacity = new QSlider(Qt::Horizontal, dialog);
+    sliderOpacity->setRange(0, 100);
+    sliderOpacity->setValue(100);
+    leftPanel->addWidget(sliderOpacity);
+
+
+    // Botones de Undo/Redo
+    QPushButton *btnUndo = new QPushButton("Deshacer", dialog);
+    leftPanel->addWidget(btnUndo);
+
+    QPushButton *btnRedo = new QPushButton("Rehacer", dialog);
+    leftPanel->addWidget(btnRedo);
+
+    QPushButton *btnSaveTexture = new QPushButton("Guardar Textura PNG", dialog);
+    leftPanel->addWidget(btnSaveTexture);
+
+    QPushButton *btnExportOBJ = new QPushButton("Exportar OBJ con Textura", dialog);
+    leftPanel->addWidget(btnExportOBJ);
+
+    QPushButton *btnImportOBJ = new QPushButton("Importar OBJ con Textura", dialog);
+    leftPanel->addWidget(btnImportOBJ);
 
     leftPanel->addStretch();
 
     // ===== PANEL DERECHO: VISTAS 2D Y 3D =====
     QVBoxLayout *rightPanel = new QVBoxLayout();
 
-    // VISTA 2D para pintar (usando PaintableLabel)
     QLabel *label2DTitle = new QLabel("Vista 2D - Pintar aquí:", dialog);
     rightPanel->addWidget(label2DTitle);
 
@@ -1990,8 +2041,10 @@ void MainWindow::on_pushButtonTexturize_clicked()
     label2D->setMinimumSize(500, 400);
     label2D->setScaledContents(true);
 
-    // Crear imagen 2D inicial (copia del heightmap en escala de grises)
+    // Crear imagen 2D inicial
     QImage *paintImage = new QImage(mapWidth, mapHeight, QImage::Format_RGB32);
+    paintImage->setColorSpace(QColorSpace::SRgb);
+
     for (int y = 0; y < mapHeight; ++y) {
         for (int x = 0; x < mapWidth; ++x) {
             unsigned char height = heightMapData[y][x];
@@ -2001,14 +2054,13 @@ void MainWindow::on_pushButtonTexturize_clicked()
     label2D->setPixmap(QPixmap::fromImage(*paintImage));
     rightPanel->addWidget(label2D);
 
-    // VISTA 3D para ver resultado
     QLabel *label3DTitle = new QLabel("Vista 3D - Resultado:", dialog);
     rightPanel->addWidget(label3DTitle);
 
     OpenGLWidget *glWidget = new OpenGLWidget(dialog);
     glWidget->setHeightMapData(heightMapData);
-    glWidget->setMinimumSize(500, 400);
     glWidget->setTexturePaintMode(true);
+    glWidget->setMinimumSize(500, 400);
     rightPanel->addWidget(glWidget);
 
     mainLayout->addLayout(leftPanel, 1);
@@ -2019,19 +2071,636 @@ void MainWindow::on_pushButtonTexturize_clicked()
     int *brushSize = new int(20);
     QList<QImage> *loadedTextures = new QList<QImage>();
     QList<QString> *textureNames = new QList<QString>();
-    int *currentTextureMode = new int(0); // 0 = color, 1 = textura
+    int *currentTextureMode = new int(0);
+    bool *isFirstClick = new bool(true);
 
-    // ===== LAMBDA PARA PINTAR =====
-    auto paintOnLabel = [=](QMouseEvent *mouseEvent) {
+    // Sistema de undo/redo
+    QList<QImage> *undoStackTexture = new QList<QImage>();
+    QList<QImage> *redoStackTexture = new QList<QImage>();
+    int *maxUndoStepsTexture = new int(50);
+
+    // Opacidad del pincel
+    int *brushOpacity = new int(100);
+
+    // Variable para controlar el primer trazo
+    bool *firstPaint = new bool(true);
+
+    // Variables para modo Clonar
+    QPoint *cloneSourcePoint = new QPoint(-1, -1);
+    bool *cloneSourceSet = new bool(false);
+
+    // ===== LAMBDA PARA EXPORTAR OBJ CON TEXTURA =====
+    auto exportOBJWithTexture = [=]() {
+        QString objFileName = QFileDialog::getSaveFileName(dialog,
+                                                           "Exportar OBJ con Textura",
+                                                           "",
+                                                           "OBJ Files (*.obj)");
+        if (objFileName.isEmpty()) return;
+
+        if (!objFileName.endsWith(".obj", Qt::CaseInsensitive)) {
+            objFileName += ".obj";
+        }
+
+        QFileInfo fileInfo(objFileName);
+        QString baseName = fileInfo.completeBaseName();
+        QString dirPath = fileInfo.absolutePath();
+        QString mtlFileName = baseName + ".mtl";
+        QString textureFileName = baseName + "_texture.png";
+        QString mtlFilePath = dirPath + "/" + mtlFileName;
+        QString textureFilePath = dirPath + "/" + textureFileName;
+
+        // Guardar textura
+        paintImage->setColorSpace(QColorSpace::SRgb);
+        if (!paintImage->save(textureFilePath, "PNG")) {
+            QMessageBox::critical(dialog, "Error", "No se pudo guardar la textura.");
+            return;
+        }
+
+        // Crear archivo MTL
+        QFile mtlFile(mtlFilePath);
+        if (!mtlFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QMessageBox::critical(dialog, "Error", "No se pudo crear el archivo MTL.");
+            return;
+        }
+
+        QTextStream mtlStream(&mtlFile);
+        mtlStream << "# Material file for " << baseName << ".obj\n";
+        mtlStream << "newmtl TexturedTerrain\n";
+        mtlStream << "Ka 1.0 1.0 1.0\n";
+        mtlStream << "Kd 1.0 1.0 1.0\n";
+        mtlStream << "Ks 0.0 0.0 0.0\n";
+        mtlStream << "d 1.0\n";
+        mtlStream << "illum 1\n";
+        mtlStream << "map_Kd " << textureFileName << "\n";
+        mtlFile.close();
+
+        // Crear archivo OBJ
+        QFile objFile(objFileName);
+        if (!objFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QMessageBox::critical(dialog, "Error", "No se pudo crear el archivo OBJ.");
+            return;
+        }
+
+        QTextStream objStream(&objFile);
+        objStream << "# Heightmap exported from HeightMapGenerator\n";
+        objStream << "mtllib " << mtlFileName << "\n\n";
+
+        const float HEIGHT_THRESHOLD = 1.0f;
+        std::vector<std::vector<int>> vertexIndexMap(mapHeight, std::vector<int>(mapWidth, -1));
+        int vertexIndex = 1;
+
+        // Escribir vértices y coordenadas UV
+        for (int y = 0; y < mapHeight; ++y) {
+            for (int x = 0; x < mapWidth; ++x) {
+                if (heightMapData[y][x] > HEIGHT_THRESHOLD) {
+                    float height = heightMapData[y][x] / 255.0f * 100.0f;
+                    objStream << "v " << x << " " << height << " " << y << "\n";
+                    vertexIndexMap[y][x] = vertexIndex++;
+                }
+            }
+        }
+
+        objStream << "\n";
+
+        // Escribir coordenadas UV
+        for (int y = 0; y < mapHeight; ++y) {
+            for (int x = 0; x < mapWidth; ++x) {
+                if (heightMapData[y][x] > HEIGHT_THRESHOLD) {
+                    float u = (float)x / (float)mapWidth;
+                    float v = 1.0f - ((float)y / (float)mapHeight);
+                    objStream << "vt " << u << " " << v << "\n";
+                }
+            }
+        }
+
+        objStream << "\n";
+        objStream << "usemtl TexturedTerrain\n\n";
+
+        // Escribir caras
+        for (int y = 0; y < mapHeight - 1; ++y) {
+            for (int x = 0; x < mapWidth - 1; ++x) {
+                int topLeft = vertexIndexMap[y][x];
+                int topRight = vertexIndexMap[y][x + 1];
+                int bottomLeft = vertexIndexMap[y + 1][x];
+                int bottomRight = vertexIndexMap[y + 1][x + 1];
+
+                if (topLeft != -1 && bottomLeft != -1 && topRight != -1) {
+                    objStream << "f " << topLeft << "/" << topLeft << " "
+                              << bottomLeft << "/" << bottomLeft << " "
+                              << topRight << "/" << topRight << "\n";
+                }
+
+                if (topRight != -1 && bottomLeft != -1 && bottomRight != -1) {
+                    objStream << "f " << topRight << "/" << topRight << " "
+                              << bottomLeft << "/" << bottomLeft << " "
+                              << bottomRight << "/" << bottomRight << "\n";
+                }
+            }
+        }
+
+        objFile.close();
+
+        QMessageBox::information(dialog, "Éxito",
+                                 QString("Exportación completada:\n- %1\n- %2\n- %3")
+                                     .arg(objFileName)
+                                     .arg(mtlFilePath)
+                                     .arg(textureFilePath));
+    };
+
+    // Lambda para importar OBJ con textura
+    auto importOBJWithTexture = [=]() {
+        QString objFileName = QFileDialog::getOpenFileName(dialog,
+                                                           "Importar OBJ con Textura",
+                                                           "",
+                                                           "OBJ Files (*.obj *.OBJ)");
+        if (objFileName.isEmpty()) return;
+
+        QFile objFile(objFileName);
+        if (!objFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QMessageBox::critical(dialog, "Error", "No se pudo abrir el archivo OBJ.");
+            return;
+        }
+
+        // === PASO 1: PARSEAR GEOMETRÍA DEL OBJ ===
+        std::vector<float> vertices_x, vertices_y, vertices_z;
+        QString mtlFileName;
+
+        QTextStream in(&objFile);
+        while (!in.atEnd()) {
+            QString line = in.readLine().trimmed();
+
+            // Leer vértices
+            if (line.startsWith("v ")) {
+                QStringList parts = line.split(' ', Qt::SkipEmptyParts);
+                if (parts.size() >= 4) {
+                    vertices_x.push_back(parts[1].toFloat());
+                    vertices_y.push_back(parts[2].toFloat());
+                    vertices_z.push_back(parts[3].toFloat());
+                }
+            }
+            // Leer referencia al archivo MTL
+            else if (line.startsWith("mtllib ")) {
+                mtlFileName = line.mid(7).trimmed();
+            }
+        }
+        objFile.close();
+
+        if (vertices_x.empty()) {
+            QMessageBox::warning(dialog, "Error", "No se encontraron vértices en el OBJ.");
+            return;
+        }
+
+        // === PASO 2: CONVERTIR GEOMETRÍA A HEIGHTMAP ===
+        // (Igual que on_pushButtonImport3D_clicked)
+
+        float minX = *std::min_element(vertices_x.begin(), vertices_x.end());
+        float maxX = *std::max_element(vertices_x.begin(), vertices_x.end());
+        float minZ = *std::min_element(vertices_z.begin(), vertices_z.end());
+        float maxZ = *std::max_element(vertices_z.begin(), vertices_z.end());
+        float minY = *std::min_element(vertices_y.begin(), vertices_y.end());
+        float maxY = *std::max_element(vertices_y.begin(), vertices_y.end());
+
+        float rangeX = maxX - minX;
+        float rangeZ = maxZ - minZ;
+
+        int targetWidth = static_cast<int>(std::ceil(rangeX));
+        int targetHeight = static_cast<int>(std::ceil(rangeZ));
+
+        if (targetWidth < 16) targetWidth = 16;
+        if (targetHeight < 16) targetHeight = 16;
+        if (targetWidth > 4096) targetWidth = 4096;
+        if (targetHeight > 4096) targetHeight = 4096;
+
+        // Crear nuevo heightmap con las dimensiones calculadas
+        std::vector<std::vector<unsigned char>> newHeightMap(targetHeight,
+                                                             std::vector<unsigned char>(targetWidth, 0));
+
+        // Proyectar vértices al grid 2D
+        for (size_t i = 0; i < vertices_x.size(); ++i) {
+            float normX = (vertices_x[i] - minX) / rangeX;
+            float normZ = (vertices_z[i] - minZ) / rangeZ;
+            float normY = (vertices_y[i] - minY) / (maxY - minY);
+
+            int gridX = static_cast<int>(normX * (targetWidth - 1));
+            int gridZ = static_cast<int>(normZ * (targetHeight - 1));
+
+            if (gridX >= 0 && gridX < targetWidth && gridZ >= 0 && gridZ < targetHeight) {
+                unsigned char heightValue = static_cast<unsigned char>(normY * 255);
+                newHeightMap[gridZ][gridX] = std::max(newHeightMap[gridZ][gridX], heightValue);
+            }
+        }
+
+        // === PASO 3: ACTUALIZAR HEIGHTMAP PRINCIPAL ===
+        // IMPORTANTE: Actualizar las dimensiones y el heightMapData de MainWindow
+        mapWidth = targetWidth;
+        mapHeight = targetHeight;
+        heightMapData = newHeightMap;
+
+        // Actualizar la imagen 2D con el nuevo heightmap
+        paintImage->~QImage();
+        *paintImage = QImage(mapWidth, mapHeight, QImage::Format_RGB32);
+        for (int y = 0; y < mapHeight; ++y) {
+            for (int x = 0; x < mapWidth; ++x) {
+                unsigned char height = heightMapData[y][x];
+                paintImage->setPixel(x, y, qRgb(height, height, height));
+            }
+        }
+
+        // === PASO 4: CARGAR TEXTURA DEL MTL (SI EXISTE) ===
+        if (!mtlFileName.isEmpty()) {
+            QFileInfo objFileInfo(objFileName);
+            QString mtlFilePath = objFileInfo.absolutePath() + "/" + mtlFileName;
+
+            QFile mtlFile(mtlFilePath);
+            if (mtlFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QTextStream mtlIn(&mtlFile);
+                QString textureFileName;
+
+                while (!mtlIn.atEnd()) {
+                    QString line = mtlIn.readLine().trimmed();
+                    if (line.startsWith("map_Kd ")) {
+                        textureFileName = line.mid(7).trimmed();
+                        break;
+                    }
+                }
+                mtlFile.close();
+
+                if (!textureFileName.isEmpty()) {
+                    QString textureFilePath = objFileInfo.absolutePath() + "/" + textureFileName;
+                    QImage textureImage(textureFilePath);
+
+                    if (!textureImage.isNull()) {
+                        // Redimensionar textura si no coincide con el heightmap
+                        if (textureImage.width() != mapWidth || textureImage.height() != mapHeight) {
+                            textureImage = textureImage.scaled(mapWidth, mapHeight,
+                                                               Qt::IgnoreAspectRatio,
+                                                               Qt::SmoothTransformation);
+                        }
+
+                        // Aplicar textura al paintImage y colorMap
+                        for (int y = 0; y < mapHeight; ++y) {
+                            for (int x = 0; x < mapWidth; ++x) {
+                                QColor color = textureImage.pixelColor(x, y);
+                                paintImage->setPixel(x, y, color.rgb());
+                                glWidget->setColorAtPosition(x, y, color);
+                            }
+                        }
+
+                        QMessageBox::information(dialog, "Éxito",
+                                                 QString("OBJ importado con textura:\n- Dimensiones: %1x%2\n- Textura: %3")
+                                                     .arg(mapWidth).arg(mapHeight).arg(textureFileName));
+                    } else {
+                        QMessageBox::warning(dialog, "Advertencia",
+                                             "Geometría importada, pero no se pudo cargar la textura.");
+                    }
+                }
+            }
+        } else {
+            QMessageBox::information(dialog, "Éxito",
+                                     QString("OBJ importado sin textura:\n- Dimensiones: %1x%2")
+                                         .arg(mapWidth).arg(mapHeight));
+        }
+
+        // === PASO 5: ACTUALIZAR VISTAS ===
+        label2D->setPixmap(QPixmap::fromImage(*paintImage));
+        glWidget->setHeightMapData(heightMapData);
+        glWidget->generateMesh();
+        glWidget->update();
+    };
+
+
+    // ===== LAMBDAS DE FUNCIONALIDAD =====
+
+    // Lambda para guardar estado en undo stack
+    auto saveTextureStateToUndo = [=]() {
+        undoStackTexture->append(paintImage->copy());
+
+        if (undoStackTexture->size() > *maxUndoStepsTexture) {
+            undoStackTexture->removeFirst();
+        }
+
+        redoStackTexture->clear();
+        qDebug() << "Texture state saved. Undo stack size:" << undoStackTexture->size();
+    };
+
+    // Lambda para deshacer
+    auto undoTexture = [=]() {
+        if (undoStackTexture->isEmpty()) {
+            QMessageBox::information(dialog, "Deshacer", "No hay acciones para deshacer.");
+            return;
+        }
+
+        redoStackTexture->append(paintImage->copy());
+        *paintImage = undoStackTexture->last();
+        undoStackTexture->removeLast();
+
+        label2D->setPixmap(QPixmap::fromImage(*paintImage));
+
+        // Actualizar colorMap del OpenGLWidget
+        for (int y = 0; y < mapHeight; ++y) {
+            for (int x = 0; x < mapWidth; ++x) {
+                QColor color = paintImage->pixelColor(x, y);
+                glWidget->setColorAtPosition(x, y, color);
+            }
+        }
+
+        glWidget->generateMesh();
+        glWidget->update();
+
+        qDebug() << "Undo executed. Stack size:" << undoStackTexture->size();
+    };
+
+    // Lambda para rehacer
+    auto redoTexture = [=]() {
+        if (redoStackTexture->isEmpty()) {
+            QMessageBox::information(dialog, "Rehacer", "No hay acciones para rehacer.");
+            return;
+        }
+
+        undoStackTexture->append(paintImage->copy());
+        *paintImage = redoStackTexture->last();
+        redoStackTexture->removeLast();
+
+        label2D->setPixmap(QPixmap::fromImage(*paintImage));
+
+        // Actualizar colorMap del OpenGLWidget
+        for (int y = 0; y < mapHeight; ++y) {
+            for (int x = 0; x < mapWidth; ++x) {
+                QColor color = paintImage->pixelColor(x, y);
+                glWidget->setColorAtPosition(x, y, color);
+            }
+        }
+
+        glWidget->generateMesh();
+        glWidget->update();
+
+        qDebug() << "Redo executed. Stack size:" << redoStackTexture->size();
+    };
+
+    // Lambda de relleno con texturas (flood fill)
+    auto fillTexture = [=](int startX, int startY, bool isTexture, int textureIndex) {
+        if (startX < 0 || startX >= mapWidth || startY < 0 || startY >= mapHeight) return;
+
+        QColor targetColor = paintImage->pixelColor(startX, startY);
+
+        std::queue<QPoint> queue;
+        queue.push(QPoint(startX, startY));
+
+        std::vector<std::vector<bool>> visited(mapHeight, std::vector<bool>(mapWidth, false));
+
+        while (!queue.empty()) {
+            QPoint current = queue.front();
+            queue.pop();
+
+            int x = current.x();
+            int y = current.y();
+
+            if (x < 0 || x >= mapWidth || y < 0 || y >= mapHeight) continue;
+            if (visited[y][x]) continue;
+            if (paintImage->pixelColor(x, y) != targetColor) continue;
+
+            visited[y][x] = true;
+
+            // Calcular color para este píxel específico
+            QColor fillColor;
+            if (isTexture) {
+                const QImage &texture = loadedTextures->at(textureIndex);
+                int texX = x % texture.width();
+                int texY = y % texture.height();
+                fillColor = texture.pixelColor(texX, texY);
+            } else {
+                fillColor = *currentColor;
+            }
+
+            paintImage->setPixel(x, y, fillColor.rgb());
+            glWidget->setColorAtPosition(x, y, fillColor);
+
+            queue.push(QPoint(x, y - 1));
+            queue.push(QPoint(x, y + 1));
+            queue.push(QPoint(x - 1, y));
+            queue.push(QPoint(x + 1, y));
+        }
+
+        label2D->setPixmap(QPixmap::fromImage(*paintImage));
+        glWidget->generateMesh();
+        glWidget->update();
+    };
+    // ===== LAMBDAS DE MODOS DE PINCEL ADICIONALES =====
+
+    // Lambda para aplicar pincel de difuminado
+    auto applyBlurBrush = [=](int mapX, int mapY) {
+        int radius = *brushSize / 2;
+
+        // Crear copia temporal para evitar modificar mientras calculamos promedios
+        QImage tempImage = paintImage->copy();
+
+        for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                int x = mapX + dx;
+                int y = mapY + dy;
+
+                if (x >= 0 && x < mapWidth && y >= 0 && y < mapHeight) {
+                    float dist = std::sqrt(dx * dx + dy * dy);
+                    if (dist <= radius) {
+                        // Calcular promedio de vecinos (kernel 3x3)
+                        int sumR = 0, sumG = 0, sumB = 0;
+                        int count = 0;
+
+                        for (int ny = -1; ny <= 1; ++ny) {
+                            for (int nx = -1; nx <= 1; ++nx) {
+                                int sampleX = x + nx;
+                                int sampleY = y + ny;
+
+                                if (sampleX >= 0 && sampleX < mapWidth && sampleY >= 0 && sampleY < mapHeight) {
+                                    QColor neighborColor = tempImage.pixelColor(sampleX, sampleY);
+                                    sumR += neighborColor.red();
+                                    sumG += neighborColor.green();
+                                    sumB += neighborColor.blue();
+                                    count++;
+                                }
+                            }
+                        }
+
+                        QColor avgColor(sumR / count, sumG / count, sumB / count);
+
+                        // Aplicar intensidad basada en distancia y opacidad
+                        float intensity = (1.0f - (dist / radius)) * (*brushOpacity / 100.0f);
+                        QColor existingColor = tempImage.pixelColor(x, y);
+
+                        int r = static_cast<int>(avgColor.red() * intensity + existingColor.red() * (1.0f - intensity));
+                        int g = static_cast<int>(avgColor.green() * intensity + existingColor.green() * (1.0f - intensity));
+                        int b = static_cast<int>(avgColor.blue() * intensity + existingColor.blue() * (1.0f - intensity));
+
+                        QColor blendedColor(r, g, b);
+                        paintImage->setPixel(x, y, blendedColor.rgb());
+                        glWidget->setColorAtPosition(x, y, blendedColor);
+                    }
+                }
+            }
+        }
+
+        label2D->setPixmap(QPixmap::fromImage(*paintImage));
+        glWidget->generateMesh();
+        glWidget->update();
+    };
+
+    // Lambda para aplicar pincel de clonado
+    auto applyCloneBrush = [=](int mapX, int mapY) {
+        if (!*cloneSourceSet) return;
+
+        int radius = *brushSize / 2;
+        int offsetX = mapX - cloneSourcePoint->x();
+        int offsetY = mapY - cloneSourcePoint->y();
+
+        for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                int destX = mapX + dx;
+                int destY = mapY + dy;
+
+                if (destX >= 0 && destX < mapWidth && destY >= 0 && destY < mapHeight) {
+                    float dist = std::sqrt(dx * dx + dy * dy);
+                    if (dist <= radius) {
+                        // Calcular posición de origen
+                        int srcX = cloneSourcePoint->x() + dx;
+                        int srcY = cloneSourcePoint->y() + dy;
+
+                        if (srcX >= 0 && srcX < mapWidth && srcY >= 0 && srcY < mapHeight) {
+                            QColor srcColor = paintImage->pixelColor(srcX, srcY);
+
+                            // Aplicar opacidad si es menor a 100%
+                            if (*brushOpacity < 100) {
+                                QColor existingColor = paintImage->pixelColor(destX, destY);
+                                float alpha = *brushOpacity / 100.0f;
+
+                                int r = static_cast<int>(srcColor.red() * alpha + existingColor.red() * (1.0f - alpha));
+                                int g = static_cast<int>(srcColor.green() * alpha + existingColor.green() * (1.0f - alpha));
+                                int b = static_cast<int>(srcColor.blue() * alpha + existingColor.blue() * (1.0f - alpha));
+
+                                srcColor = QColor(r, g, b);
+                            }
+
+                            paintImage->setPixel(destX, destY, srcColor.rgb());
+                            glWidget->setColorAtPosition(destX, destY, srcColor);
+                        }
+                    }
+                }
+            }
+        }
+
+        label2D->setPixmap(QPixmap::fromImage(*paintImage));
+        glWidget->generateMesh();
+        glWidget->update();
+    };
+
+    // Lambda para aplicar pincel borrador (restaura heightmap original)
+    auto applyEraserBrush = [=](int mapX, int mapY) {
+        int radius = *brushSize / 2;
+
+        for (int dy = -radius; dy <= radius; ++dy) {
+            for (int dx = -radius; dx <= radius; ++dx) {
+                int x = mapX + dx;
+                int y = mapY + dy;
+
+                if (x >= 0 && x < mapWidth && y >= 0 && y < mapHeight) {
+                    float dist = std::sqrt(dx * dx + dy * dy);
+                    if (dist <= radius) {
+                        // Restaurar color original del heightmap (escala de grises)
+                        unsigned char height = heightMapData[y][x];
+                        QColor originalColor(height, height, height);
+
+                        // Aplicar opacidad si es menor a 100%
+                        if (*brushOpacity < 100) {
+                            QColor existingColor = paintImage->pixelColor(x, y);
+                            float alpha = *brushOpacity / 100.0f;
+
+                            int r = static_cast<int>(originalColor.red() * alpha + existingColor.red() * (1.0f - alpha));
+                            int g = static_cast<int>(originalColor.green() * alpha + existingColor.green() * (1.0f - alpha));
+                            int b = static_cast<int>(originalColor.blue() * alpha + existingColor.blue() * (1.0f - alpha));
+
+                            originalColor = QColor(r, g, b);
+                        }
+
+                        paintImage->setPixel(x, y, originalColor.rgb());
+                        glWidget->setColorAtPosition(x, y, originalColor);
+                    }
+                }
+            }
+        }
+
+        label2D->setPixmap(QPixmap::fromImage(*paintImage));
+        glWidget->generateMesh();
+        glWidget->update();
+    };
+    // ===== LAMBDA PRINCIPAL DE PINTADO =====
+
+    auto paintOnLabel = [=](QMouseEvent *mouseEvent) mutable {
+        // Guardar estado solo en el primer clic
+        if (*firstPaint) {
+            saveTextureStateToUndo();
+            *firstPaint = false;
+        }
+
         QPoint pos = mouseEvent->pos();
         int mapX = (pos.x() * mapWidth) / label2D->width();
         int mapY = (pos.y() * mapHeight) / label2D->height();
 
         if (mapX < 0 || mapX >= mapWidth || mapY < 0 || mapY >= mapHeight) return;
 
+        QString paintMode = comboPaintMode->currentText();
+
+        // MODO RELLENO
+        if (paintMode == "Relleno") {
+            if (*isFirstClick) {
+                *isFirstClick = false;
+
+                QListWidgetItem *currentItem = colorList->currentItem();
+                if (!currentItem) return;
+
+                bool isTexture = (currentItem->data(Qt::UserRole).toInt() == -1);
+
+                if (isTexture) {
+                    int textureIndex = currentItem->data(Qt::UserRole + 1).toInt();
+                    fillTexture(mapX, mapY, true, textureIndex);
+                } else {
+                    fillTexture(mapX, mapY, false, 0);
+                }
+            }
+            return;
+        }
+
+        // MODO DIFUMINAR
+        if (paintMode == "Difuminar") {
+            applyBlurBrush(mapX, mapY);
+            return;
+        }
+
+        // MODO CLONAR
+        if (paintMode == "Clonar") {
+            // Ctrl+Click establece el punto de origen
+            if (QApplication::keyboardModifiers() & Qt::ControlModifier) {
+                *cloneSourcePoint = QPoint(mapX, mapY);
+                *cloneSourceSet = true;
+                QMessageBox::information(dialog, "Clonar",
+                                         QString("Origen establecido en (%1, %2)").arg(mapX).arg(mapY));
+                return;
+            }
+
+            // Click normal clona desde el origen
+            if (*cloneSourceSet) {
+                applyCloneBrush(mapX, mapY);
+            }
+            return;
+        }
+
+        // MODO BORRADOR
+        if (paintMode == "Borrador") {
+            applyEraserBrush(mapX, mapY);
+            return;
+        }
+
+        // MODO PINCEL (por defecto) con opacidad
         int radius = *brushSize / 2;
 
-        // Determinar si estamos pintando color o textura
         QListWidgetItem *currentItem = colorList->currentItem();
         if (!currentItem) return;
 
@@ -2048,17 +2717,25 @@ void MainWindow::on_pushButtonTexturize_clicked()
                         QColor pixelColor;
 
                         if (isTexture) {
-                            // Obtener color de la textura
                             int textureIndex = currentItem->data(Qt::UserRole + 1).toInt();
                             const QImage &texture = loadedTextures->at(textureIndex);
-
-                            // Mapear coordenadas del mapa a coordenadas de textura (tiling)
                             int texX = x % texture.width();
                             int texY = y % texture.height();
                             pixelColor = texture.pixelColor(texX, texY);
                         } else {
-                            // Usar color sólido
                             pixelColor = *currentColor;
+                        }
+
+                        // Aplicar opacidad si es menor a 100%
+                        if (*brushOpacity < 100) {
+                            QColor existingColor = paintImage->pixelColor(x, y);
+                            float alpha = *brushOpacity / 100.0f;
+
+                            int r = static_cast<int>(pixelColor.red() * alpha + existingColor.red() * (1.0f - alpha));
+                            int g = static_cast<int>(pixelColor.green() * alpha + existingColor.green() * (1.0f - alpha));
+                            int b = static_cast<int>(pixelColor.blue() * alpha + existingColor.blue() * (1.0f - alpha));
+
+                            pixelColor = QColor(r, g, b);
                         }
 
                         paintImage->setPixel(x, y, pixelColor.rgb());
@@ -2072,10 +2749,21 @@ void MainWindow::on_pushButtonTexturize_clicked()
         glWidget->generateMesh();
         glWidget->update();
     };
-    // Asignar el callback al PaintableLabel
-    label2D->paintCallback = paintOnLabel;
 
-    // ===== CONECTAR EVENTOS =====
+    // ASIGNAR CALLBACKS AL PAINTABLELABEL
+    label2D->paintCallback = paintOnLabel;
+    label2D->releaseCallback = [isFirstClick, firstPaint]() {
+        *isFirstClick = true;
+        *firstPaint = true;
+    };
+    // ===== CONECTAR EVENTOS (ANTES DE dialog->exec()) =====
+
+    // Botones de Undo/Redo
+    connect(btnUndo, &QPushButton::clicked, undoTexture);
+    connect(btnRedo, &QPushButton::clicked, redoTexture);
+
+    // Botón de exportación OBJ con textura
+    connect(btnExportOBJ, &QPushButton::clicked, exportOBJWithTexture);
 
     // Selector de color personalizado
     connect(btnCustomColor, &QPushButton::clicked, [colorList, dialog]() {
@@ -2090,60 +2778,7 @@ void MainWindow::on_pushButtonTexturize_clicked()
         }
     });
 
-    // Cambio de color seleccionado
-    connect(colorList, &QListWidget::currentRowChanged, [colorList, currentColor, glWidget, currentTextureMode](int row) {
-        if (row >= 0) {
-            QListWidgetItem *item = colorList->item(row);
-
-            if (item->data(Qt::UserRole).toInt() == -1) {
-                // Es una textura
-                *currentTextureMode = 1;
-            } else {
-                // Es un color
-                *currentTextureMode = 0;
-                QColor color = item->data(Qt::UserRole).value<QColor>();
-                *currentColor = color;
-                glWidget->setCurrentPaintColor(color);
-            }
-        }
-    });
-
-    // Cambio de tamaño de pincel
-    connect(sliderTextureBrushSize, &QSlider::valueChanged, [brushSize, labelBrushSizeValue](int value) {
-        *brushSize = value;
-        labelBrushSizeValue->setText(QString::number(value));
-    });
-
-    QPushButton *btnSaveTexture = new QPushButton("Guardar Textura PNG", dialog);
-    leftPanel->addWidget(btnSaveTexture);
-
-    leftPanel->addStretch(); // Esta línea ya existe en la línea 1959
-
-    // Limpieza de memoria al cerrar el diálogo
-    connect(dialog, &QDialog::destroyed, [paintImage, currentColor, brushSize, loadedTextures, textureNames, currentTextureMode]() {
-        delete paintImage;
-        delete currentColor;
-        delete brushSize;
-        delete loadedTextures;
-        delete textureNames;
-        delete currentTextureMode;
-    });
-
-    // Conectar botón de guardado
-    connect(btnSaveTexture, &QPushButton::clicked, [paintImage, dialog]() {
-        QString fileName = QFileDialog::getSaveFileName(dialog,
-                                                        "Guardar Textura",
-                                                        "",
-                                                        "PNG Files (*.png)");
-        if (fileName.isEmpty()) return;
-
-        if (paintImage->save(fileName, "PNG")) {
-            QMessageBox::information(dialog, "Éxito", "Textura guardada correctamente.");
-        } else {
-            QMessageBox::critical(dialog, "Error", "No se pudo guardar la textura.");
-        }
-    });
-
+    // Cargar textura individual
     connect(btnLoadTexture, &QPushButton::clicked, [colorList, loadedTextures, textureNames, dialog]() {
         QString fileName = QFileDialog::getOpenFileName(dialog,
                                                         "Cargar Textura",
@@ -2157,20 +2792,19 @@ void MainWindow::on_pushButtonTexturize_clicked()
             return;
         }
 
-        // Agregar a la lista
         loadedTextures->append(texture);
         textureNames->append(QFileInfo(fileName).fileName());
 
-        // Crear miniatura para la lista
         QImage thumbnail = texture.scaled(64, 64, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         QPixmap pixmap = QPixmap::fromImage(thumbnail);
 
         QListWidgetItem *item = new QListWidgetItem(QIcon(pixmap), QFileInfo(fileName).fileName());
-        item->setData(Qt::UserRole, QVariant::fromValue(-1)); // -1 indica textura, no color
-        item->setData(Qt::UserRole + 1, loadedTextures->size() - 1); // Índice de textura
+        item->setData(Qt::UserRole, QVariant::fromValue(-1));
+        item->setData(Qt::UserRole + 1, loadedTextures->size() - 1);
         colorList->addItem(item);
     });
 
+    // Cargar directorio de texturas
     connect(btnLoadDirectory, &QPushButton::clicked, [colorList, loadedTextures, textureNames, dialog]() {
         QString dirPath = QFileDialog::getExistingDirectory(dialog,
                                                             "Seleccionar Directorio de Texturas",
@@ -2203,13 +2837,74 @@ void MainWindow::on_pushButtonTexturize_clicked()
                                  QString("Se cargaron %1 texturas.").arg(files.size()));
     });
 
+    // Cambio de color/textura seleccionada
+    connect(colorList, &QListWidget::currentRowChanged, [colorList, currentColor, glWidget, currentTextureMode](int row) {
+        if (row >= 0) {
+            QListWidgetItem *item = colorList->item(row);
+            if (item->data(Qt::UserRole).toInt() == -1) {
+                *currentTextureMode = 1;
+            } else {
+                *currentTextureMode = 0;
+                QColor color = item->data(Qt::UserRole).value<QColor>();
+                *currentColor = color;
+                glWidget->setCurrentPaintColor(color);
+            }
+        }
+    });
+
+    // Cambio de tamaño de pincel
+    connect(sliderTextureBrushSize, &QSlider::valueChanged, [brushSize, labelBrushSizeValue](int value) {
+        *brushSize = value;
+        labelBrushSizeValue->setText(QString::number(value));
+    });
+
+    // Cambio de opacidad del pincel
+    connect(sliderBrushOpacity, &QSlider::valueChanged, [brushOpacity, labelOpacityValue](int value) {
+        *brushOpacity = value;
+        labelOpacityValue->setText(QString::number(value) + "%");
+    });
+
+    // Guardar textura PNG con sRGB
+    connect(btnSaveTexture, &QPushButton::clicked, [paintImage, dialog]() {
+        QString fileName = QFileDialog::getSaveFileName(dialog, "Guardar Textura", "", "PNG Files (*.png)");
+        if (fileName.isEmpty()) return;
+
+        paintImage->setColorSpace(QColorSpace::SRgb);
+
+        if (paintImage->save(fileName, "PNG")) {
+            QMessageBox::information(dialog, "Éxito", "Textura guardada correctamente en sRGB.");
+        } else {
+            QMessageBox::critical(dialog, "Error", "No se pudo guardar la textura.");
+        }
+    });
+
+    // Botón de importación OBJ con textura
+    connect(btnImportOBJ, &QPushButton::clicked, importOBJWithTexture);
+
+    // Limpieza de memoria al cerrar el diálogo
+    connect(dialog, &QDialog::destroyed, [paintImage, currentColor, brushSize, loadedTextures, textureNames, currentTextureMode, undoStackTexture, redoStackTexture, maxUndoStepsTexture, brushOpacity, firstPaint, cloneSourcePoint, cloneSourceSet]() {
+        delete paintImage;
+        delete currentColor;
+        delete brushSize;
+        delete loadedTextures;
+        delete textureNames;
+        delete currentTextureMode;
+        delete undoStackTexture;
+        delete redoStackTexture;
+        delete maxUndoStepsTexture;
+        delete brushOpacity;
+        delete firstPaint;
+        delete cloneSourcePoint;
+        delete cloneSourceSet;
+    });
+
     // Seleccionar primer color por defecto
     if (colorList->count() > 0) {
         colorList->setCurrentRow(0);
     }
 
     dialog->setLayout(mainLayout);
-    dialog->show();
+    dialog->exec();
 }
 
 QImage MainWindow::generateColorMapImage(const std::vector<std::vector<QColor>>& colorMap)

@@ -126,8 +126,13 @@ void OpenGLWidget::initializeGL()
 
     glClearColor(0.5f, 0.7f, 1.0f, 1.0f);
     glEnable(GL_DEPTH_TEST);
-    glEnable(GL_CULL_FACE);
-    glFrontFace(GL_CCW);
+
+    // MODIFICADO: Solo habilitar culling si NO estamos en modo pintado
+    if (!texturePaintMode) {
+        glEnable(GL_CULL_FACE);
+        glFrontFace(GL_CCW);
+    }
+
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -259,6 +264,15 @@ void OpenGLWidget::generateMesh()
         return;
     }
 
+    // Reservar memoria
+    size_t totalVertices = static_cast<size_t>(mapWidth) * static_cast<size_t>(mapHeight);
+    size_t totalIndices = static_cast<size_t>(mapWidth - 1) * static_cast<size_t>(mapHeight - 1) * 6;
+
+    vertices.reserve(totalVertices * 8);
+    indices.reserve(totalIndices);
+
+    qDebug() << "Reserved memory for" << totalVertices << "vertices and" << totalIndices << "indices";
+
     // Generar vértices
     for (int y = 0; y < mapHeight; ++y) {
         for (int x = 0; x < mapWidth; ++x) {
@@ -268,9 +282,13 @@ void OpenGLWidget::generateMesh()
             vertices.push_back(height);
             vertices.push_back(static_cast<float>(y));
 
-            // IMPORTANTE: Usar colorMap si existe, sino usar colores por altura
+            // Usar colorMap solo si NO está vacío y tiene las dimensiones correctas
             float r, g, b;
-            if (!colorMap.empty() && colorMap[y][x].isValid()) {
+            if (!colorMap.empty() &&
+                colorMap.size() == static_cast<size_t>(mapHeight) &&
+                !colorMap[y].empty() &&
+                colorMap[y].size() == static_cast<size_t>(mapWidth) &&
+                colorMap[y][x].isValid()) {
                 // Usar color pintado
                 r = colorMap[y][x].redF();
                 g = colorMap[y][x].greenF();
@@ -482,7 +500,7 @@ void OpenGLWidget::resizeGL(int w, int h)
         float orthoSize = zoom * 50.0f;
         projection.ortho(-orthoSize * aspect, orthoSize * aspect,
                          -orthoSize, orthoSize,
-                         -1000.0f, 1000.0f);
+                         -5000.0f, 5000.0f);  // CAMBIO: Planos más amplios
     } else {
         // Proyección perspectiva para visualización normal
         projection.perspective(45.0f, (float)w / (float)h, 0.1f, 1000.0f);
@@ -621,6 +639,13 @@ void OpenGLWidget::setHeightMapData(const std::vector<std::vector<unsigned char>
 
     qDebug() << "Map dimensions:" << mapWidth << "x" << mapHeight;
 
+    // NUEVO: Inicializar colorMap si estamos en modo pintado
+    if (texturePaintMode) {
+        qDebug() << "Texture paint mode active, initializing colorMap...";
+        colorMap.assign(mapHeight, std::vector<QColor>(mapWidth, QColor(Qt::transparent)));
+        qDebug() << "colorMap initialized with dimensions:" << mapWidth << "x" << mapHeight;
+    }
+
     qDebug() << "Checking OpenGL context...";
     if (context() && context()->isValid()) {
         qDebug() << "Calling generateMesh()...";
@@ -647,10 +672,58 @@ void OpenGLWidget::setTexturePaintMode(bool enabled)
     qDebug() << "setTexturePaintMode called with:" << enabled;
     texturePaintMode = enabled;
 
-    // Inicializar colorMap si no existe
-    if (enabled && colorMap.empty() && mapWidth > 0 && mapHeight > 0) {
-        qDebug() << "Initializing colorMap with dimensions:" << mapWidth << "x" << mapHeight;
-        colorMap.assign(mapHeight, std::vector<QColor>(mapWidth, QColor(Qt::transparent)));
+    if (!enabled) {
+        qDebug() << "Texture paint mode disabled";
+        return;
+    }
+
+    // CRÍTICO: Verificar si colorMap ya está correctamente inicializado
+    bool colorMapValid = !colorMap.empty() &&
+                         colorMap.size() == static_cast<size_t>(mapHeight);
+
+    if (colorMapValid && !colorMap[0].empty() &&
+        colorMap[0].size() == static_cast<size_t>(mapWidth)) {
+        qDebug() << "colorMap already initialized with correct dimensions, skipping";
+        return;  // SALIDA TEMPRANA - No hacer nada más
+    }
+
+    // Si llegamos aquí, necesitamos inicializar o reinicializar
+    if (mapWidth <= 0 || mapHeight <= 0) {
+        qDebug() << "ERROR: Invalid map dimensions:" << mapWidth << "x" << mapHeight;
+        return;
+    }
+
+    qDebug() << "Texture paint mode active, initializing colorMap...";
+
+    // Limpiar colorMap existente si tiene dimensiones incorrectas
+    if (!colorMap.empty()) {
+        qDebug() << "Clearing existing colorMap with incorrect dimensions";
+        colorMap.clear();
+    }
+
+    // Inicializar fila por fila para evitar fragmentación
+    try {
+        colorMap.reserve(mapHeight);
+
+        for (int y = 0; y < mapHeight; ++y) {
+            std::vector<QColor> row;
+            row.reserve(mapWidth);
+
+            for (int x = 0; x < mapWidth; ++x) {
+                row.push_back(QColor(Qt::transparent));
+            }
+
+            colorMap.push_back(std::move(row));
+
+            if (y % 100 == 0) {
+                qDebug() << "Initialized row" << y << "of" << mapHeight;
+            }
+        }
+
+        qDebug() << "colorMap initialization completed successfully";
+    } catch (const std::exception& e) {
+        qDebug() << "ERROR: Failed to initialize colorMap:" << e.what();
+        colorMap.clear();
     }
 
     qDebug() << "setTexturePaintMode completed successfully";
@@ -786,6 +859,13 @@ void OpenGLWidget::leaveEvent(QEvent *event)
 
 void OpenGLWidget::paintGL()
 {
+    // NUEVO: Controlar culling según el modo
+    if (texturePaintMode) {
+        glDisable(GL_CULL_FACE);
+    } else {
+        glEnable(GL_CULL_FACE);
+    }
+
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     if (vertices.empty() || indices.empty()) {
@@ -831,7 +911,7 @@ void OpenGLWidget::paintGL()
         waterShader->setUniformValue("mvpMatrix", mvp);
         waterShader->setUniformValue("waterAlpha", waterAlpha);
 
-        // AGREGAR: Configurar textura del agua si existe
+        // Configurar textura del agua si existe
         if (useWaterTexture && waterTexture) {
             waterShader->setUniformValue("useWaterTexture", true);
             waterShader->setUniformValue("waterTextureSampler", 0);
@@ -859,12 +939,6 @@ void OpenGLWidget::paintGL()
         waterShader->release();
         glEnable(GL_CULL_FACE);
     }
-}
-
-void OpenGLWidget::setCurrentPaintColor(const QColor &color)
-{
-    currentPaintColor = color;
-    qDebug() << "Paint color set to:" << color.name();
 }
 
 QVector3D OpenGLWidget::screenToWorld(const QPoint &screenPos)
@@ -912,15 +986,42 @@ void OpenGLWidget::setColorAtPosition(int x, int y, const QColor &color)
         return;
     }
 
-    // Inicializar colorMap si está vacío
+    // Inicializar colorMap SOLO si está vacío (lazy initialization)
     if (colorMap.empty()) {
-        qDebug() << "Inicializando colorMap con dimensiones:" << mapWidth << "x" << mapHeight;
-        colorMap.assign(mapHeight, std::vector<QColor>(mapWidth, Qt::transparent));
+        qDebug() << "Lazy initialization of colorMap:" << mapWidth << "x" << mapHeight;
+
+        try {
+            // Reservar espacio para el vector externo
+            colorMap.reserve(mapHeight);
+
+            // Crear filas una por una
+            for (int row = 0; row < mapHeight; ++row) {
+                std::vector<QColor> rowVector;
+                rowVector.reserve(mapWidth);
+
+                // Llenar la fila con colores transparentes
+                for (int col = 0; col < mapWidth; ++col) {
+                    rowVector.push_back(QColor(Qt::transparent));
+                }
+
+                colorMap.push_back(std::move(rowVector));
+
+                // Log cada 100 filas para monitorear progreso
+                if (row % 100 == 0) {
+                    qDebug() << "Initialized row" << row << "of" << mapHeight;
+                }
+            }
+
+            qDebug() << "colorMap lazy initialization completed successfully";
+        } catch (const std::bad_alloc& e) {
+            qDebug() << "ERROR: Failed to allocate colorMap:" << e.what();
+            colorMap.clear();
+            return;
+        }
     }
 
     // Establecer el color en la posición especificada
     colorMap[y][x] = color;
-
 }
 
 QImage OpenGLWidget::generateColorMapImage() const
@@ -945,4 +1046,10 @@ QImage OpenGLWidget::generateColorMapImage() const
     }
 
     return image;
+}
+
+void OpenGLWidget::setCurrentPaintColor(const QColor &color)
+{
+    currentPaintColor = color;
+    qDebug() << "Paint color set to:" << color.name();
 }
